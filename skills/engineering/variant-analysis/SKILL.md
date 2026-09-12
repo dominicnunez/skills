@@ -15,9 +15,11 @@ description: Use after a confirmed defect to find other occurrences of the same 
 4. Read all relevant matches with callers and guards. Record false positives and
    why they are excluded. Narrow noisy patterns rather than treating matches as
    proof of defects.
-5. Confirm each candidate through reachable behavior, a concrete missing guard,
-   or a regression. Distinguish a supported alternate path from an unavailable
-   capability. State uncertainty when reachability is unproven.
+5. Confirm each candidate with evidence that a reachable, supported path violates
+   the invariant. Check guards at other owning boundaries and the intended contract.
+   A missing local guard or an artificial test that bypasses required admission
+   does not alone prove a defect. Keep candidates with unproven reachability or
+   violated behavior as hypotheses, not confirmed findings.
 6. Audit the complete pattern family before pushing a fix. Handle independent
    confirmed findings under the repository's issue and sequencing rules.
 7. Keep a compact record of patterns, scope, confirmed cases, exclusions, and

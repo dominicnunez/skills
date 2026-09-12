@@ -15,9 +15,14 @@ description: Use for reproducible bugs, failing tests, unexplained runtime behav
    patch stacked on top.
 4. Add a regression that fails for the demonstrated defect, fix the root cause
    across required callers, and verify the relevant behavior and failure paths.
-   Use the installed tdd and verification-before-completion skills as applicable.
-5. Search for other instances of the confirmed pattern using variant-analysis
-   where appropriate. Keep independent defects under the repository's issue policy.
+   Confirm the regression fails for the intended cause before the fix and passes
+   afterward, and limit completion claims to the verified revision and behavior.
+   If installed, tdd and verification-before-completion can add detail; they are
+   optional and their absence does not block this workflow.
+5. Search other callers and alternate paths for the confirmed pattern, and verify
+   reachability and violated behavior before treating a match as another defect.
+   If installed, variant-analysis can guide this search. Keep independent defects
+   under the repository's issue policy.
 
 Instrument only the boundaries needed to distinguish hypotheses. Record redacted
 types, sizes, state transitions, identifiers safe for the task, and boolean

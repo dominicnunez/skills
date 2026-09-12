@@ -9,8 +9,11 @@ from the authorized task, public contracts, and existing tests. Ask only when a
 material product decision remains unresolved.
 
 1. Write one test for an observable requirement, using an independent expected
-   result. Run it against the prior behavior; confirm it fails for the intended
-   defect, rather than broken setup or compilation.
+   result. For an existing API, confirm it fails for the intended behavioral
+   defect rather than broken setup. For an intentionally new API, a missing-symbol
+   compile failure can establish the initial red state; add only the minimal
+   declaration, then demonstrate a behavior-level failure before implementing
+   the behavior. Unrelated compilation or fixture failures are not useful proof.
 2. Implement the smallest complete behavior slice across its necessary callers.
    Do not omit a caller just to keep a patch small.
 3. Run the focused check, inspect its result, then repeat for the next behavior.
