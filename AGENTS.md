@@ -5,6 +5,9 @@
 
 - Keep each skill narrow and useful. Prefer concrete decision guidance over
   persona prompts, repeated reminders, or compulsory ceremony.
+- Use PR findings and review/verification costs to improve skills and maintenance
+  guidance when they demonstrate a reusable lesson. Replace conflicting rules;
+  check later decision behavior instead of equating more instructions with quality.
 - User instructions and the target repository's requirements take precedence.
   Never infer authority to publish, spend, merge, or change external systems.
 - Preserve upstream attribution, licenses, fixed revisions and adaptation notes.
