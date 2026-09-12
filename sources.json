@@ -18,7 +18,7 @@
     "source_url": "https://github.com/obra/superpowers/tree/b36e0829c6d0140e93cfef2ca599b1b07d4a7797/skills/verification-before-completion",
     "license": "MIT",
     "upstream_skill_sha256": "2befe7fc55bcadaa3d97dd9e8efeb633d2561c0ebe74c5a8b17c4d9e7e4520b3",
-    "adaptations": "Allows valid unchanged evidence reuse; distinguishes focused proof from full completion; preserves final-head review requirements.",
+    "adaptations": "Allows valid unchanged evidence reuse; distinguishes focused proof from full completion; preserves final-head review requirements. Matches cost claims to complete workloads, requires timeout diagnosis before budget changes, and treats delegated audit results as scoped evidence.",
     "package_path": "skills/engineering/verification-before-completion"
   },
   {
@@ -29,7 +29,7 @@
     "source_url": "https://github.com/mattpocock/skills/tree/3cca18b368ae95cdbdebbff572ccafa662551015/skills/engineering/tdd",
     "license": "MIT",
     "upstream_skill_sha256": "cb01f66bebfaa25fa1f88e6b7e769cd9fd9f35b1120b8563749820738814c927",
-    "adaptations": "Infers authorized test boundaries; permits contract-relevant durable state and forbidden-call assertions; avoids forced approvals and unavailable skill dependencies.",
+    "adaptations": "Infers authorized test boundaries; permits contract-relevant durable state and forbidden-call assertions; avoids forced approvals and unavailable skill dependencies. Adds ordered-history corruption cases and complete-operation growth checks for relevant workloads, preserving cache correctness and avoiding universal scale-test requirements.",
     "package_path": "skills/engineering/tdd"
   },
   {
@@ -51,7 +51,7 @@
     "source_url": "https://github.com/trailofbits/skills/tree/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/variant-analysis/skills/variant-analysis",
     "license": "CC-BY-SA-4.0",
     "upstream_skill_sha256": "7b6b78e499bcb88d05c68254ffc91ebc28edabf4e9808adcc40e2628ebb9407e",
-    "adaptations": "Self-contained direct workflow; no compulsory delegation, plugin command, report template, or CI rule.",
+    "adaptations": "Self-contained direct workflow; no compulsory delegation, plugin command, report template, or CI rule. Includes repeated-operation and reader/writer coverage for cost defects, revisits exclusions after recurring findings, and limits audit claims to inspected paths.",
     "package_path": "skills/engineering/variant-analysis"
   },
   {

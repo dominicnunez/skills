@@ -7,4 +7,4 @@ Original author: obra. Adaptation: Dominic, 2026-09-12.
 License for this derivative: MIT; see [LICENSE.txt](LICENSE.txt).
 This is a modified version; no upstream endorsement is implied.
 
-Changes: Allows valid unchanged evidence reuse; distinguishes focused proof from full completion; preserves final-head review requirements.
+Changes: Allows valid unchanged evidence reuse; distinguishes focused proof from full completion; preserves final-head review requirements. Matches cost claims to complete workloads, requires timeout diagnosis before budget changes, and treats delegated audit results as scoped evidence.

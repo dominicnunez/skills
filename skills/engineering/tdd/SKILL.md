@@ -35,6 +35,19 @@ Do not recompute the implementation as the expected answer. Avoid tests that
 pass only because they duplicate the algorithm. Use documented examples, a
 separate reference model, or relationships the implementation could violate.
 
+When behavior depends on an ordered history, exercise an invalid earlier entry
+followed by plausible later entries. If both live and replay readers enforce
+the same rule, compare their outcomes without using one as the other's oracle.
+
+For changes with history- or workload-dependent cost, exercise a complete public
+operation at representative small and large sizes early enough to guide design.
+Count work across nested calls, repeated requests and concurrent callers when
+the runtime uses them. Compare relevant allocations, queries or latency; a fast
+helper does not prove a fast operation. For a cache, distinguish cold and warm
+behavior and retain mutation, snapshot, rollback and isolation checks. Prefer a
+stable growth regression over a machine-specific timing threshold unless the
+contract itself requires a deadline. Do not impose scale tests on unrelated edits.
+
 Use the repository's existing test tools and meaningful regression requirements.
 Do not add a dependency, coverage quota, or exhaustive suite just to follow this
 skill. Record unproven behavior honestly.

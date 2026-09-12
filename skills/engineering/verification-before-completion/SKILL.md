@@ -21,6 +21,14 @@ For each substantive claim, identify its evidence and practical limits.
 - Before a review push, inspect the full diff, affected callers and applicable
   checks. After review, require coverage of the final head according to the
   repository's rules; prior approvals do not establish later correctness.
+- Match cost claims to the complete operation and its workload, including
+  repetition or concurrency when relevant. State cold/warm conditions and
+  remaining growth; a helper benchmark or cache's existence is insufficient.
+  Investigate timed-out checks before increasing their budget, separating an
+  algorithmic regression from instrumentation overhead or runner variation.
+- Treat a subagent's result as scoped evidence. Verify the inspected entry
+  points, methods, exclusions and uncertainty before making a broader claim;
+  skill use and a clean audit report do not establish untested coverage.
 - Keep the user's update brief and accurate. Separate completed, verified work
   from work pending review or checks. Do not claim that installing or validating
   a skill proves it will reduce defects.
