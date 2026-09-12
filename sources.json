@@ -1,0 +1,68 @@
+[
+  {
+    "name": "systematic-debugging",
+    "repository": "obra/superpowers",
+    "revision": "b36e0829c6d0140e93cfef2ca599b1b07d4a7797",
+    "path": "skills/systematic-debugging",
+    "source_url": "https://github.com/obra/superpowers/tree/b36e0829c6d0140e93cfef2ca599b1b07d4a7797/skills/systematic-debugging",
+    "license": "MIT",
+    "upstream_skill_sha256": "808fc5717aa88ad65efff312b11c186294d3e6ee301afb584e2f86599b137787",
+    "adaptations": "Shortened workflow; redacted diagnostics; scoped testing and authorization; removed plugin dependencies and arbitrary escalation threshold.",
+    "package_path": "skills/engineering/systematic-debugging"
+  },
+  {
+    "name": "verification-before-completion",
+    "repository": "obra/superpowers",
+    "revision": "b36e0829c6d0140e93cfef2ca599b1b07d4a7797",
+    "path": "skills/verification-before-completion",
+    "source_url": "https://github.com/obra/superpowers/tree/b36e0829c6d0140e93cfef2ca599b1b07d4a7797/skills/verification-before-completion",
+    "license": "MIT",
+    "upstream_skill_sha256": "2befe7fc55bcadaa3d97dd9e8efeb633d2561c0ebe74c5a8b17c4d9e7e4520b3",
+    "adaptations": "Allows valid unchanged evidence reuse; distinguishes focused proof from full completion; preserves final-head review requirements.",
+    "package_path": "skills/engineering/verification-before-completion"
+  },
+  {
+    "name": "tdd",
+    "repository": "mattpocock/skills",
+    "revision": "3cca18b368ae95cdbdebbff572ccafa662551015",
+    "path": "skills/engineering/tdd",
+    "source_url": "https://github.com/mattpocock/skills/tree/3cca18b368ae95cdbdebbff572ccafa662551015/skills/engineering/tdd",
+    "license": "MIT",
+    "upstream_skill_sha256": "cb01f66bebfaa25fa1f88e6b7e769cd9fd9f35b1120b8563749820738814c927",
+    "adaptations": "Infers authorized test boundaries; permits contract-relevant durable state and forbidden-call assertions; avoids forced approvals and unavailable skill dependencies.",
+    "package_path": "skills/engineering/tdd"
+  },
+  {
+    "name": "property-based-testing",
+    "repository": "trailofbits/skills",
+    "revision": "321ccfe628eca0d314b0ee4eaffcdd8a05639aaf",
+    "path": "plugins/property-based-testing/skills/property-based-testing",
+    "source_url": "https://github.com/trailofbits/skills/tree/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/property-based-testing/skills/property-based-testing",
+    "license": "CC-BY-SA-4.0",
+    "upstream_skill_sha256": "9448cacb65c6237a7c22dc59602667177ecae405524079ae9ff92240590b995a",
+    "adaptations": "Focused state and boundary testing; Go standard-library option; no compulsory dependency or refactoring.",
+    "package_path": "skills/engineering/property-based-testing"
+  },
+  {
+    "name": "variant-analysis",
+    "repository": "trailofbits/skills",
+    "revision": "321ccfe628eca0d314b0ee4eaffcdd8a05639aaf",
+    "path": "plugins/variant-analysis/skills/variant-analysis",
+    "source_url": "https://github.com/trailofbits/skills/tree/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/variant-analysis/skills/variant-analysis",
+    "license": "CC-BY-SA-4.0",
+    "upstream_skill_sha256": "7b6b78e499bcb88d05c68254ffc91ebc28edabf4e9808adcc40e2628ebb9407e",
+    "adaptations": "Self-contained direct workflow; no compulsory delegation, plugin command, report template, or CI rule.",
+    "package_path": "skills/engineering/variant-analysis"
+  },
+  {
+    "name": "security-best-practices",
+    "repository": "openai/skills",
+    "revision": "49f948faa9258a0c61caceaf225e179651397431",
+    "path": "skills/.curated/security-best-practices",
+    "source_url": "https://github.com/openai/skills/tree/49f948faa9258a0c61caceaf225e179651397431/skills/.curated/security-best-practices",
+    "license": "Apache-2.0",
+    "upstream_skill_sha256": "7b3dae1ffc5434d890f3c65c8f552af52d0307fab3b35dec13013c9ca3844c4f",
+    "adaptations": "Preserves existing authorization, threat-model format, and independent review policy. Replaces broad copied security handbooks with focused Go/browser guidance checked against official Go, WHATWG, and W3C sources. Corrects process execution, HTTP defaults, CORS, event handlers, CSP, opaque-origin messaging, and mandatory-tool overreach.",
+    "package_path": "skills/engineering/security-best-practices"
+  }
+]
