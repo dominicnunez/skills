@@ -1,4 +1,7 @@
-# Engineering skills maintenance
+# Skills maintenance
+
+- Organize skills as skills/<category>/<skill-name>/. Engineering is one category,
+  not the repository's entire scope. Keep skills individually installable.
 
 - Keep each skill narrow and useful. Prefer concrete decision guidance over
   persona prompts, repeated reminders, or compulsory ceremony.
