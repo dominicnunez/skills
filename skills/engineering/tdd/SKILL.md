@@ -27,6 +27,13 @@ Inspect durable state or count forbidden calls when these are part of the
 contract (for example, no spend after denial or no write before authorization).
 Avoid assertions on incidental implementation details.
 
+For lifecycle changes, identify where the operation actually ends. Exercise
+relevant preparation, external calls, and durable admission after a handler
+returns. Cancellation tests should enter through the runtime or transport that
+owns shutdown, as well as interrupting relevant writes. Verify denied activity,
+retained accounting, and recovery of any decision already committed before the
+stop. A helper invoked directly cannot prove the outer shutdown ordering.
+
 Test doubles must implement the actual production interfaces and failure
 semantics. Prefer doubles at external boundaries; use internal fault injection
 only when needed to expose an otherwise inaccessible failure.

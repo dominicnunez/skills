@@ -11,6 +11,8 @@
 - User instructions and the target repository's requirements take precedence.
   Never infer authority to publish, spend, merge, or change external systems.
 - Preserve upstream attribution, licenses, fixed revisions and adaptation notes.
+  Update `sources.json` and the affected package's `provenance.md` together when
+  changing its adaptations; installed packages must retain their own attribution.
   Review upstream changes before updating; never silently replace adaptations.
 - Keep private workspace notes, credentials, personal paths and project evidence
   out of this public repository.
