@@ -29,7 +29,7 @@
     "source_url": "https://github.com/mattpocock/skills/tree/3cca18b368ae95cdbdebbff572ccafa662551015/skills/engineering/tdd",
     "license": "MIT",
     "upstream_skill_sha256": "cb01f66bebfaa25fa1f88e6b7e769cd9fd9f35b1120b8563749820738814c927",
-    "adaptations": "Infers authorized test boundaries; permits contract-relevant durable state and forbidden-call assertions; avoids forced approvals and unavailable skill dependencies. Adds ordered-history corruption cases and complete-operation growth checks for relevant workloads, preserving cache correctness and avoiding universal scale-test requirements.",
+    "adaptations": "Infers authorized test boundaries; permits contract-relevant durable state and forbidden-call assertions; avoids forced approvals and unavailable skill dependencies. Adds ordered-history corruption cases and complete-operation growth checks for relevant workloads, preserving cache correctness and avoiding universal scale-test requirements. Covers lifecycle phases through durable completion and tests cancellation through the owning runtime or transport, preserving required accounting and committed decisions.",
     "package_path": "skills/engineering/tdd"
   },
   {
@@ -51,7 +51,7 @@
     "source_url": "https://github.com/trailofbits/skills/tree/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/variant-analysis/skills/variant-analysis",
     "license": "CC-BY-SA-4.0",
     "upstream_skill_sha256": "7b6b78e499bcb88d05c68254ffc91ebc28edabf4e9808adcc40e2628ebb9407e",
-    "adaptations": "Self-contained direct workflow; no compulsory delegation, plugin command, report template, or CI rule. Includes repeated-operation and reader/writer coverage for cost defects, revisits exclusions after recurring findings, and limits audit claims to inspected paths.",
+    "adaptations": "Self-contained direct workflow; no compulsory delegation, plugin command, report template, or CI rule. Includes repeated-operation and reader/writer coverage for cost defects, revisits exclusions after recurring findings, and limits audit claims to inspected paths. Extends lifecycle analysis across owners, phases, and distinct stop causes while distinguishing required bookkeeping and previously committed decisions from fresh admission.",
     "package_path": "skills/engineering/variant-analysis"
   },
   {
