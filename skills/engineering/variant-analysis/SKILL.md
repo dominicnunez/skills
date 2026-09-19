@@ -12,6 +12,11 @@ description: Use after a confirmed defect to find other occurrences of the same 
 3. Expand one dimension at a time: related identifiers, other callers, inverse
    boolean conditions, absent metadata, alternate composition, retry or replay.
    Ground expansion in identifiers and interfaces that actually exist.
+   For lifecycle defects, trace owners and phases from request admission through
+   preparation, external calls, and durable completion. Compare distinct stop
+   causes and their scopes; a guard for an authority change may not observe
+   runtime shutdown. Include admission after a handler returns and the outer
+   runtime/transport ordering that invokes the helper under review.
    For repeated-work defects, also trace complete operations, nested calls,
    repeated requests and concurrent callers. Cover reachable readers as well as
    writers. One call per transaction is not an exclusion when every poll starts
@@ -24,6 +29,9 @@ description: Use after a confirmed defect to find other occurrences of the same 
    A missing local guard or an artificial test that bypasses required admission
    does not alone prove a defect. Keep candidates with unproven reachability or
    violated behavior as hypotheses, not confirmed findings.
+   Distinguish required stop bookkeeping and completion of an already-committed
+   decision from newly admitted work; verify the durable boundary before calling
+   a post-cancellation write a bypass.
    For cache costs, establish when reusable state should exist. A permitted cold
    start or eviction is not itself a cache bypass; show unnecessary work under
    the stated conditions or a violated workload/deadline requirement.
