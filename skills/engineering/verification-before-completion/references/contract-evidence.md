@@ -41,9 +41,10 @@ installation or correct cache contents. State the trusted-storage assumptions.
 
 For cost-sensitive changes, vary the number of actual operations as well as
 supporting history. Distinguish unrelated history from work inherently required
-by a selected dependency or candidate set. Use the same fixture, code baseline,
-runtime and benchmark settings for before/after comparisons; exclude setup only
-when that matches the claimed operation, and record its cost separately.
+by a selected dependency or candidate set. Record the exact old and new code
+revisions being compared. Keep the fixture, runtime, benchmark settings and
+unrelated code/configuration constant; exclude setup only when that matches the
+claimed operation, and record its cost separately.
 
 A helper benchmark cannot establish public-operation improvement. A theoretical
 complexity concern is not a measured regression. Report latency and allocation
