@@ -21,6 +21,11 @@ For each substantive claim, identify its evidence and practical limits.
 - Before a review push, inspect the full diff, affected callers and applicable
   checks. After review, require coverage of the final head according to the
   repository's rules; prior approvals do not establish later correctness.
+- For changes spanning authority, persistence, filtered history or several
+  lifecycle owners, use the [contract evidence gate](references/contract-evidence.md)
+  before the review push. It turns broad audit claims into inspected boundaries
+  and explicit missing evidence. Skip this procedure for documentation-only or
+  low-impact mechanical edits.
 - Match cost claims to the complete operation and its workload, including
   repetition or concurrency when relevant. State cold/warm conditions and
   remaining growth; a helper benchmark or cache's existence is insufficient.
