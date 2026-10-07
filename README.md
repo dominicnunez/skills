@@ -20,25 +20,3 @@ adaptations, not official releases or endorsements by their upstream authors.
 | Skill | Use it for |
 | --- | --- |
 | [watch](skills/media/watch/SKILL.md) | YouTube/local video questions, timestamped summaries and documents from captions and FFmpeg frames/audio |
-
-Watch includes standard-library Python helpers; install yt-dlp, FFmpeg/ffprobe,
-and the YouTube JS runtime/EJS dependencies described in its SKILL.md separately.
-Its preflight does not install software and its scripts do not upload audio.
-
-Repository instructions and the user's authorization remain authoritative.
-Skills do not replace required PR reviews, authorize external actions, or grant
-permission to spend money. Load only skills relevant to the current work.
-
-Use `skills/<category>/<skill-name>/` for each skill. Install individual skill
-directories, not a category directory, using Codex's Skill Installer.
-The initial skills are under `skills/engineering/`.
-The directories include their own licenses and provenance so they remain
-attributed when installed individually.
-
-See [sources.json](sources.json) for fixed upstream revisions, source hashes, and
-the adaptation record. Updates should compare upstream changes with those
-revisions and preserve local decisions; do not overwrite adaptations blindly.
-
-The contents of each skill retain the license named in its `provenance.md`.
-In particular, Trail of Bits derivatives remain CC-BY-SA-4.0 and OpenAI
-derivatives remain Apache-2.0. Original repository documentation is MIT-licensed.
