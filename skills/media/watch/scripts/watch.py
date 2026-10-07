@@ -10,7 +10,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from download import download, fetch_captions, is_url, validate_url
+from download import MediaRefusal, download, fetch_captions, is_url, validate_url
 from frames import (
     MAX_FPS, auto_fps, auto_fps_focus, extract_at_timestamps,
     extract_keyframes, extract_scene_or_uniform, format_time, get_metadata,
@@ -87,19 +87,33 @@ def main(argv: list[str] | None = None) -> int:
     frames: list[dict] = []
     cue_selection = {"requested_seconds": cues, "sampling_attempted": False}
     audio_path = None
+    downloaded_range = None
+    source_offset = 0.0
     try:
         if need_frames or args.extract_audio:
             if remote:
-                downloaded = download(args.source, work / "download", audio_only=not need_frames, sub_lang=args.sub_lang)
+                downloaded = download(args.source, work / "download", audio_only=not need_frames,
+                                      sub_lang=args.sub_lang, start_seconds=start, end_seconds=end)
                 evidence["info"] = downloaded["info"] or evidence.get("info", {})
                 if not caption_path and downloaded.get("subtitle_path"):
                     caption_path = downloaded["subtitle_path"]
                     segments = parse_vtt(caption_path)
                 video_path = downloaded["video_path"]
+                downloaded_range = downloaded["source_range"]
+                source_offset = downloaded_range["start"]
+                end = downloaded_range["end"]
             else:
                 video_path = local["video_path"]
             meta = get_metadata(video_path)
-        duration = float(meta["duration_seconds"])
+            if remote:
+                clip_duration = float(meta["duration_seconds"])
+                expected_duration = downloaded_range["end"] - downloaded_range["start"]
+                if not math.isfinite(clip_duration) or clip_duration <= 0 or clip_duration < expected_duration - 0.25:
+                    if not math.isfinite(clip_duration):
+                        meta["duration_seconds"] = 0
+                    raise SystemExit("Downloaded section is empty or truncated; no media evidence published")
+                meta["source_offset_seconds"] = source_offset
+        duration = downloaded_range["end"] if downloaded_range else float(meta["duration_seconds"])
         if duration > 0:
             end = min(end, duration) if end is not None else duration
             if start >= duration:
@@ -111,14 +125,15 @@ def main(argv: list[str] | None = None) -> int:
         if video_path and (not math.isfinite(interval) or interval <= 0):
             raise SystemExit("Media has no finite positive duration in the requested range")
         try:
-            frames = collect_frames(args, video_path, work, start, end, interval, cap, cues, meta, warnings, cue_selection) if need_frames and video_path else []
+            frames = collect_frames(args, video_path, work, start, end, interval, cap, cues,
+                                    meta, warnings, cue_selection, source_offset) if need_frames and video_path else []
         except (SystemExit, OSError, ValueError) as exc:
             warnings.append(f"Frame extraction failed: {exc}")
         if args.extract_audio and video_path:
             if meta.get("has_audio"):
                 audio_path = work / "audio.wav"
                 command = ["ffmpeg", "-nostdin", "-protocol_whitelist", "file,pipe",
-                           "-hide_banner", "-loglevel", "error", "-ss", str(start),
+                           "-hide_banner", "-loglevel", "error", "-ss", str(start - source_offset),
                            "-i", video_path, "-t", str(interval), "-vn", "-ac", "1",
                            "-ar", "16000", str(audio_path)]
                 result = subprocess.run(command, capture_output=True, text=True)
@@ -128,8 +143,16 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 warnings.append("Media has no audio stream.")
     except (SystemExit, OSError, ValueError) as exc:
+        if isinstance(exc, MediaRefusal):
+            evidence["info"] = exc.info or evidence.get("info", {})
         warnings.append(f"Media extraction failed: {exc}")
 
+    # Every caption publication path, including refused/failed downloads, uses
+    # the known source end rather than inferring media past EOF from a sidecar.
+    if remote:
+        source_duration = float(evidence.get("info", {}).get("duration") or 0)
+        if math.isfinite(source_duration) and source_duration > 0:
+            end = max(start, min(end, source_duration) if end is not None else source_duration)
     if end is None:
         end = max(start, max((segment["end"] for segment in segments), default=start))
     selected_segments = filter_range(segments, start, end)
@@ -147,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         "range": {"start": start, "end": end}, "detail": args.detail,
         "frames": frames, "captions": str(Path(caption_path).resolve()) if caption_path else None,
         "cue_selection": cue_selection,
+        "downloaded_range": downloaded_range,
         "transcript": str(transcript_path), "transcript_segments": selected_segments,
         "audio": str(audio_path) if audio_path else None, "warnings": warnings,
     }
@@ -168,15 +192,21 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if frames or selected_segments or audio_path else 1
 
 
-def collect_frames(args, video_path, work, start, end, interval, cap, cues, meta, warnings, cue_selection):
+def collect_frames(args, video_path, work, start, end, interval, cap, cues, meta, warnings, cue_selection, source_offset=0.0):
     frames = []
     if not meta.get("width"):
         warnings.append("Media has no video stream; no frames available.")
     else:
         cue_selection["sampling_attempted"] = bool(cues)
+        local_cues = [t - source_offset for t in cues]
+        source_cues = dict(zip(local_cues, cues))
         pinned, cue_meta = extract_at_timestamps(
-            video_path, work / "frames", cues, args.resolution, cap, start, end,
+            video_path, work / "frames", local_cues, args.resolution, cap,
+            start - source_offset, end - source_offset,
         ) if cues else ([], {})
+        for field in ("requested_seconds", "in_window_seconds", "requested_in_budget_seconds", "sampled_request_seconds"):
+            if field in cue_meta:
+                cue_meta[field] = [source_cues[t] for t in cue_meta[field]]
         cue_selection.update(cue_meta)
         if cue_meta.get("dropped_out_of_window"):
             warnings.append("Some cue timestamps were outside the requested range.")
@@ -192,7 +222,7 @@ def collect_frames(args, video_path, work, start, end, interval, cap, cues, meta
                 fps = min(args.fps, MAX_FPS)
                 target = max(1, round(fps * interval))
             options = dict(resolution=args.resolution, max_frames=remaining,
-                           start_seconds=start, end_seconds=end, dedup=not args.no_dedup)
+                           start_seconds=start - source_offset, end_seconds=end - source_offset, dedup=not args.no_dedup)
             try:
                 if args.detail == "efficient":
                     frames, _ = extract_keyframes(video_path, work / "frames", fps=fps, target_frames=target, **options)
@@ -201,6 +231,10 @@ def collect_frames(args, video_path, work, start, end, interval, cap, cues, meta
             except (SystemExit, OSError, ValueError) as exc:
                 warnings.append(f"Frame extraction failed: {exc}")
         frames = merge_frames(frames, pinned)
+        for frame in frames:
+            frame["timestamp_seconds"] = round(frame["timestamp_seconds"] + source_offset, 3)
+            if "requested_seconds" in frame:
+                frame["requested_seconds"] = source_cues[frame["requested_seconds"]]
     return frames
 
 

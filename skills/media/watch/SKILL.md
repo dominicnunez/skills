@@ -17,7 +17,8 @@ This package adapts the local extraction workflow from claude-video v0.2.0.
   installed media tools.
 - Use HTTPS YouTube URLs or local media the user supplies. The downloader
   validates YouTube hostnames and isolates
-  runs, disables yt-dlp configuration, plugins and remote components, and does
+  runs, downloads only the admitted finite media section, disables yt-dlp
+  configuration, plugins and remote components, and does
   not read browser cookies. Stop on access restrictions; report the limitation
   without cycling accounts, clients or proxies.
 - This adaptation does not install dependencies, read API keys or upload audio
@@ -118,7 +119,8 @@ python (Join-Path $watchSkillDir 'scripts/watch.py') 'video.mp4' --subtitles 'ca
 The script prints the absolute run directory and saves:
 
 - `report.md`: evidence index and limitations for the agent to read.
-- `manifest.json`: source metadata, selected range, frame paths and source
+- `manifest.json`: source metadata, selected range, downloaded source range,
+  frame paths and source
   timestamps, caption provenance path, transcript segments, audio path and warnings.
   `cue_selection` retains all requested times and the sampling-attempt state;
   completed cue selection reports window/budget omissions and sampled requests.
@@ -135,6 +137,26 @@ warnings. Captions must overlap the interval for positive duration; retained
 cues keep their original millisecond times and text, including partial overlap.
 Malformed/non-finite and non-positive cues are omitted. Only identical
 overlapping cues are merged; cumulative caption text keeps its own timing.
+
+Remote media passes are limited to **30 minutes** of source time. A full-video
+pass requires a known duration within that limit; for longer videos, choose
+shorter `--start`/`--end` intervals. Unknown duration requires an explicit finite
+end, and live streams are refused. Captions can still provide evidence when
+media is refused. Local files are outside this remote acquisition policy.
+
+yt-dlp downloads the admitted section through FFmpeg, re-encoding MP4 video
+(up to 720p) and AAC audio for accurate cuts. This costs CPU and changes the
+encoding. FFmpeg receives both a duration limit and a **256 MiB** media output
+size guard, flushing packets during writing. The file can slightly overshoot
+the size guard; the helper
+rejects media at or above the limit and preserves the evidence directory.
+Use a shorter interval after refusal; there is no full-download retry.
+Empty or truncated sections are refused before publishing media evidence;
+usable captions remain in the report.
+Known source metadata survives media refusal or failure, and caption selection
+still respects the source end.
+These guards bound media output, not total network bytes, elapsed time,
+metadata or caption files. An inefficient remote seek can still read a prefix.
 
 Capped modes scan candidates without saving images, then decode the selected
 indices. This adds a decode pass to keep scratch images and selection memory
@@ -156,7 +178,12 @@ Separate the speaker's claims from your conclusions. Sampled frames do not
 prove every event or motion between them; long videos need a focused pass when
 the question depends on a specific moment. Readability can require a higher
 resolution or pinned frame. Reuse the local downloaded media for follow-up
-visual passes; reuse the caption path with `--subtitles` to retain speech evidence.
+visual passes; downloaded clips use local times, so subtract
+`manifest.downloaded_range.start` from source times and add it back when citing
+the original video. A remote pass preserves source times automatically in
+frame/cue records and records `downloaded_range`. Caption files retain original
+source times; use the original URL with `--subtitles` for automatic focused
+caption/frame alignment rather than mixing those cues with a clip-local pass.
 
 Answer a specific question directly. Without a question, provide a concise
 summary of the structure, key points and observed moments. Synthesize rather

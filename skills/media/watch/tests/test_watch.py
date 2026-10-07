@@ -1,8 +1,10 @@
 """Offline contract checks; no video services or transcription APIs are called."""
 import contextlib
+from array import array
 import io
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -97,8 +99,13 @@ class DownloadTests(unittest.TestCase):
             output = Path(folder)
             (output / "video.mp4").write_bytes(b"old unrelated media")
             with patch("download.shutil.which", return_value="yt-dlp"):
-                with patch("download.subprocess.run") as run:
-                    run.return_value = subprocess.CompletedProcess([], 1)
+                def fail_media(command, **kwargs):
+                    if "--skip-download" in command:
+                        template = command[command.index("-o") + 1]
+                        Path(template.replace("%(ext)s", "info.json")).write_text(json.dumps({"duration": 10}))
+                        return subprocess.CompletedProcess(command, 0)
+                    return subprocess.CompletedProcess(command, 1)
+                with patch("download.subprocess.run", side_effect=fail_media):
                     with self.assertRaises(SystemExit):
                         download.download_url("https://youtu.be/new-video", output)
 
@@ -106,12 +113,71 @@ class DownloadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             def incomplete(command, **kwargs):
                 template = command[command.index("-o") + 1]
-                Path(template.replace("%(ext)s", "f137.mp4")).write_bytes(b"component")
+                if "--skip-download" in command:
+                    Path(template.replace("%(ext)s", "info.json")).write_text(json.dumps({"duration": 10}))
+                else:
+                    Path(template.replace("%(ext)s", "f137.mp4")).write_bytes(b"component")
                 return subprocess.CompletedProcess(command, 0)
             with patch("download.shutil.which", return_value="yt-dlp"):
                 with patch("download.subprocess.run", side_effect=incomplete):
-                    with self.assertRaises(SystemExit):
+                    with self.assertRaisesRegex(SystemExit, "did not produce"):
                         download.download_url("https://youtu.be/example", Path(folder))
+
+    def test_whole_remote_denies_long_or_unknown_duration_before_media(self):
+        for duration, live in ((3601, False), (None, False), (float("inf"), False), ("invalid", False), (10, True)):
+            with self.subTest(duration=duration, live=live), tempfile.TemporaryDirectory() as folder:
+                media_calls = []
+                def video_service(command, **kwargs):
+                    template = command[command.index("-o") + 1]
+                    Path(template.replace("%(ext)s", "info.json")).write_text(json.dumps({"duration": duration, "is_live": live}))
+                    if "--skip-download" not in command:
+                        media_calls.append(command)
+                        Path(template.replace("%(ext)s", "mp4")).write_bytes(b"oversized source")
+                    return subprocess.CompletedProcess(command, 0)
+                with patch("download.shutil.which", return_value="yt-dlp"), \
+                     patch("download.subprocess.run", side_effect=video_service):
+                    with self.assertRaises(SystemExit):
+                        download.download("https://youtu.be/example", Path(folder))
+                self.assertEqual(media_calls, [])
+                self.assertEqual(list(Path(folder).glob("fetch-*/video.mp4")), [])
+
+    def test_remote_invalid_or_overlong_range_denies_io(self):
+        for start, end in ((-1, 2), (0, float("inf")), (1, 1), (3, 2), (0, 1801)):
+            with self.subTest(start=start, end=end), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder) / "uncreated"
+                with patch("download.subprocess.run") as run:
+                    with self.assertRaises(SystemExit):
+                        download.download_url("https://youtu.be/example", output,
+                                              start_seconds=start, end_seconds=end)
+                    run.assert_not_called()
+                self.assertFalse(output.exists())
+
+    def test_media_at_output_limit_is_not_published(self):
+        for audio_only in (False, True):
+            with self.subTest(audio_only=audio_only), tempfile.TemporaryDirectory() as folder:
+                media_commands = []
+                def video_service(command, **kwargs):
+                    template = command[command.index("-o") + 1]
+                    Path(template.replace("%(ext)s", "info.json")).write_text(json.dumps({"duration": 86400}))
+                    if "--skip-download" not in command:
+                        media_commands.append(command)
+                        Path(template.replace("%(ext)s", "m4a" if audio_only else "mp4")).write_bytes(b"x" * 64)
+                    return subprocess.CompletedProcess(command, 0)
+                with patch("download.shutil.which", return_value="yt-dlp"), \
+                     patch("download.subprocess.run", side_effect=video_service), \
+                     patch.object(download, "MAX_MEDIA_BYTES", 64):
+                    with self.assertRaisesRegex(SystemExit, "output limit"):
+                        download.download_url("https://youtu.be/example", Path(folder), audio_only=audio_only,
+                                              start_seconds=5000, end_seconds=5002)
+                self.assertEqual(len(media_commands), 1)
+                command = media_commands[0]
+                section = command[command.index("--download-sections") + 1]
+                self.assertEqual(list(map(float, section.lstrip("*").split("-"))), [5000, 5002])
+                self.assertEqual(command[command.index("--downloader") + 1], "ffmpeg")
+                self.assertIn("--force-keyframes-at-cuts", command)
+                options = shlex.split(command[command.index("--downloader-args") + 1].split(":", 1)[1])
+                self.assertEqual(float(options[options.index("-t") + 1]), 2)
+                self.assertEqual(int(options[options.index("-fs") + 1]), 64)
 
 
 class WatchTests(unittest.TestCase):
@@ -129,6 +195,143 @@ class WatchTests(unittest.TestCase):
     def invoke(self, *args):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             return watch.main([str(self.media), "--out-dir", str(self.output), *args])
+
+    def test_unknown_remote_duration_keeps_caption_evidence(self):
+        for duration in ("invalid", float("inf"), float("nan")):
+            with self.subTest(duration=duration):
+                media_calls = []
+                def video_service(command, **kwargs):
+                    template = command[command.index("-o") + 1]
+                    Path(template.replace("%(ext)s", "info.json")).write_text(json.dumps({"duration": duration}))
+                    if "--write-subs" in command:
+                        shutil.copyfile(self.captions, template.replace("%(ext)s", "en.vtt"))
+                    if "--skip-download" not in command:
+                        media_calls.append(command)
+                    return subprocess.CompletedProcess(command, 0)
+                with patch("download.shutil.which", return_value="yt-dlp"), \
+                     patch("download.subprocess.run", side_effect=video_service), \
+                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(watch.main(["https://youtu.be/example", "--out-dir", str(self.output)]), 0)
+                data = json.loads(max(self.output.glob("watch-*/manifest.json"), key=lambda p: p.stat().st_mtime_ns).read_text())
+                self.assertEqual(data["metadata"]["duration_seconds"], 0)
+                self.assertEqual(data["range"], {"start": 0.0, "end": 8.0})
+                self.assertEqual(len(data["transcript_segments"]), 2)
+                self.assertEqual(data["frames"], [])
+                self.assertTrue(any("unknown" in warning for warning in data["warnings"]))
+                self.assertEqual(media_calls, [])
+
+    def test_overlong_remote_range_keeps_captions_without_media_transfer(self):
+        with patch("download.subprocess.run") as run, \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            result = watch.main(["https://youtu.be/example", "--subtitles", str(self.captions),
+                                 "--end", "3600", "--extract-audio", "--out-dir", str(self.output)])
+        self.assertEqual(result, 0)
+        run.assert_not_called()
+        data = json.loads(next(self.output.glob("watch-*/manifest.json")).read_text())
+        self.assertEqual(len(data["transcript_segments"]), 2)
+        self.assertEqual(data["frames"], [])
+        self.assertIsNone(data["audio"])
+        self.assertTrue(any("30 minutes" in warning for warning in data["warnings"]))
+
+    def test_empty_or_truncated_remote_section_keeps_focused_captions(self):
+        for duration in (0, 0.5):
+            with self.subTest(duration=duration):
+                result = {"info": {"duration": 10}, "video_path": str(self.media),
+                          "source_range": {"start": 1.0, "end": 8.0}, "subtitle_path": None}
+                metadata = {"duration_seconds": duration, "width": 320, "has_audio": True}
+                with patch("watch.download", return_value=result), patch("watch.get_metadata", return_value=metadata), \
+                     patch("watch.collect_frames", return_value=[]) as frames, \
+                     patch("watch.subprocess.run", return_value=subprocess.CompletedProcess([], 1, "", "unexpected audio call")) as audio, \
+                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    status = watch.main(["https://youtu.be/example", "--subtitles", str(self.captions),
+                                         "--start", "1", "--end", "8", "--extract-audio", "--out-dir", str(self.output)])
+                self.assertEqual(status, 0)
+                frames.assert_not_called()
+                audio.assert_not_called()
+                data = json.loads(max(self.output.glob("watch-*/manifest.json"), key=lambda p: p.stat().st_mtime_ns).read_text())
+                self.assertEqual(data["range"], {"start": 1.0, "end": 8.0})
+                self.assertEqual(len(data["transcript_segments"]), 2)
+                self.assertEqual(data["frames"], [])
+                self.assertIsNone(data["audio"])
+                self.assertTrue(any("section" in warning for warning in data["warnings"]))
+
+    def test_remote_refusal_retains_known_end_before_publishing_captions(self):
+        self.captions.write_text("WEBVTT\n\n00:07.000 --> 00:12.000\nForeign captions past EOF\n", encoding="utf-8")
+        for options in ([], ["--end", "20"], ["--detail", "transcript", "--extract-audio"]):
+            with self.subTest(options=options):
+                media_calls = []
+                def video_service(command, **kwargs):
+                    template = command[command.index("-o") + 1]
+                    Path(template.replace("%(ext)s", "info.json")).write_text(json.dumps({"duration": 6}))
+                    if "--skip-download" not in command:
+                        media_calls.append(command)
+                    return subprocess.CompletedProcess(command, 0)
+                with patch("download.shutil.which", return_value="yt-dlp"), \
+                     patch("download.subprocess.run", side_effect=video_service), \
+                     patch("watch.get_metadata") as probe, \
+                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    status = watch.main(["https://youtu.be/example", "--subtitles", str(self.captions),
+                                         "--start", "10", "--out-dir", str(self.output), *options])
+                self.assertEqual(status, 1)
+                probe.assert_not_called()
+                self.assertEqual(media_calls, [])
+                data = json.loads(max(self.output.glob("watch-*/manifest.json"), key=lambda p: p.stat().st_mtime_ns).read_text())
+                self.assertEqual(data["range"], {"start": 10.0, "end": 10.0})
+                self.assertEqual(data["info"]["duration"], 6)
+                self.assertEqual(data["transcript_segments"], [])
+                self.assertEqual(data["frames"], [])
+                self.assertIsNone(data["audio"])
+
+    def test_remote_media_failures_keep_known_end_and_valid_captions(self):
+        for failure in ("exit", "missing", "size", "start"):
+            with self.subTest(failure=failure):
+                media_calls = []
+                def video_service(command, **kwargs):
+                    template = command[command.index("-o") + 1]
+                    if "--skip-download" in command:
+                        Path(template.replace("%(ext)s", "info.json")).write_text(json.dumps({"duration": 6}))
+                        return subprocess.CompletedProcess(command, 0)
+                    media_calls.append(command)
+                    if failure == "start":
+                        raise OSError("downloader unavailable")
+                    if failure == "size":
+                        Path(template.replace("%(ext)s", "mp4")).write_bytes(b"x" * 64)
+                    return subprocess.CompletedProcess(command, 1 if failure == "exit" else 0)
+                with patch("download.shutil.which", return_value="yt-dlp"), \
+                     patch("download.subprocess.run", side_effect=video_service), \
+                     patch.object(download, "MAX_MEDIA_BYTES", 64), patch("watch.get_metadata") as probe, \
+                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    status = watch.main(["https://youtu.be/example", "--subtitles", str(self.captions),
+                                         "--start", "1", "--end", "10", "--extract-audio", "--out-dir", str(self.output)])
+                self.assertEqual(status, 0)
+                self.assertEqual(len(media_calls), 1)
+                probe.assert_not_called()
+                data = json.loads(max(self.output.glob("watch-*/manifest.json"), key=lambda p: p.stat().st_mtime_ns).read_text())
+                self.assertEqual(data["range"], {"start": 1.0, "end": 6.0})
+                self.assertEqual(data["info"]["duration"], 6)
+                self.assertEqual(data["transcript_segments"], [{"start": 1.0, "end": 2.0, "text": "Early evidence"}])
+                self.assertEqual(data["frames"], [])
+                self.assertIsNone(data["audio"])
+                self.assertTrue(any("Media extraction failed" in warning for warning in data["warnings"]))
+
+    def test_caption_source_end_survives_later_metadata_failure(self):
+        evidence = {"info": {"duration": 6}, "subtitle_path": str(self.captions)}
+        with patch("watch.fetch_captions", return_value=evidence), \
+             patch("download.shutil.which", return_value="yt-dlp"), \
+             patch("download.subprocess.run", return_value=subprocess.CompletedProcess([], 1)) as run, \
+             patch("watch.get_metadata") as probe, \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            status = watch.main(["https://youtu.be/example", "--start", "1", "--end", "10",
+                                 "--out-dir", str(self.output)])
+        self.assertEqual(status, 0)
+        self.assertEqual(run.call_count, 1)
+        self.assertIn("--skip-download", run.call_args.args[0])
+        probe.assert_not_called()
+        data = json.loads(next(self.output.glob("watch-*/manifest.json")).read_text())
+        self.assertEqual(data["range"], {"start": 1.0, "end": 6.0})
+        self.assertEqual(data["transcript_segments"], [{"start": 1.0, "end": 2.0, "text": "Early evidence"}])
+        self.assertEqual(data["frames"], [])
+        self.assertIsNone(data["audio"])
 
     def test_focused_captions_use_positive_half_open_overlap(self):
         self.captions.write_text("WEBVTT\n\n00:01.000 --> 00:02.000\nTouches start\n\n"
@@ -338,9 +541,14 @@ class MediaTests(unittest.TestCase):
         cls.root = Path(cls.temp.name)
         cls.media = cls.root / "synthetic clip.mp4"
         # Many distinct cuts and fixed one-second keyframes exercise both engines.
-        pattern = "color=c=black:size=320x180:rate=10:duration=10,drawbox=color=white:x=0:y=0:w=iw:h=ih:t=fill:enable='lt(mod(t,0.4),0.2)'"
+        pattern = ("color=c=black:size=320x180:rate=10:duration=10,"
+                   "drawbox=color=white:x=0:y=0:w=iw:h=ih:t=fill:enable='lt(mod(t,0.4),0.2)',"
+                   "drawbox=color=blue:x=0:y=0:w=32:h=32:t=fill:enable='lt(t,2)',"
+                   "drawbox=color=lime:x=0:y=0:w=32:h=32:t=fill:enable='gte(t,2)*lt(t,8)',"
+                   "drawbox=color=red:x=0:y=0:w=32:h=32:t=fill:enable='gte(t,8)'")
+        audio = "aevalsrc=0.2*sin(2*PI*if(lt(t\\,2)\\,220\\,if(lt(t\\,8)\\,440\\,880))*t):s=16000:d=10"
         subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-                        "-f", "lavfi", "-i", pattern, "-f", "lavfi", "-i", "sine=frequency=440:duration=10",
+                        "-f", "lavfi", "-i", pattern, "-f", "lavfi", "-i", audio,
                         "-c:v", "mpeg4", "-g", "10", "-c:a", "aac",
                         "-shortest", str(cls.media)], check=True, capture_output=True, timeout=30)
         cls.captions = cls.root / "captions.vtt"
@@ -351,6 +559,95 @@ class MediaTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.temp.cleanup()
+
+    def remote_service(self, media_commands):
+        real_run = subprocess.run
+        def video_service(command, **kwargs):
+            if command[0] != "yt-dlp":
+                return real_run(command, **kwargs)
+            template = command[command.index("-o") + 1]
+            Path(template.replace("%(ext)s", "info.json")).write_text(json.dumps({"duration": 10}))
+            if "--skip-download" not in command:
+                media_commands.append(command)
+                target = template.replace("%(ext)s", "mp4")
+                if "--download-sections" in command:
+                    section = command[command.index("--download-sections") + 1].lstrip("*")
+                    start, end = map(float, section.split("-"))
+                    options = shlex.split(command[command.index("--downloader-args") + 1].split(":", 1)[1])
+                    encoded = real_run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+                                        "-ss", str(start), "-t", str(end - start), "-i", str(self.media),
+                                        *options, target], capture_output=True, text=True, timeout=30)
+                    self.assertEqual(encoded.returncode, 0, encoded.stderr)
+                else:
+                    shutil.copyfile(self.media, target)
+            return subprocess.CompletedProcess(command, 0)
+        return video_service
+
+    def test_remote_focus_downloads_only_the_section_and_keeps_source_times(self):
+        real_run = subprocess.run
+        real_which = shutil.which
+        output = self.root / "remote-focus"
+        media_commands = []
+        with patch("download.shutil.which", side_effect=lambda name: "yt-dlp" if name == "yt-dlp" else real_which(name)), \
+             patch("download.subprocess.run", side_effect=self.remote_service(media_commands)), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            result = watch.main(["https://youtu.be/example", "--subtitles", str(self.captions),
+                                 "--start", "1.35", "--end", "8.7", "--max-frames", "3",
+                                 "--timestamps", "2.04,8.54", "--extract-audio", "--out-dir", str(output)])
+        self.assertEqual(result, 0)
+        downloaded = next(output.glob("watch-*/download/fetch-*/video.mp4"))
+        from frames import get_metadata
+        self.assertAlmostEqual(get_metadata(str(downloaded))["duration_seconds"], 7.35, delta=0.1)
+        self.assertEqual(len(media_commands), 1)
+        self.assertIn("--download-sections", media_commands[0])
+        data = json.loads(next(output.glob("watch-*/manifest.json")).read_text())
+        self.assertEqual(data["range"], {"start": 1.35, "end": 8.7})
+        self.assertEqual(data["downloaded_range"], {"start": 1.35, "end": 8.7})
+        self.assertTrue(all(1.35 <= frame["timestamp_seconds"] < 8.7 for frame in data["frames"]))
+        pinned = [frame for frame in data["frames"] if frame["reason"] == "transcript-cue"]
+        self.assertEqual([frame["requested_seconds"] for frame in pinned], [2.04, 8.54])
+        self.assertEqual([frame["timestamp_seconds"] for frame in pinned], [2.1, 8.6])
+        self.assertTrue(any(frame["timestamp_seconds"] < 2 for frame in data["frames"]))
+        for frame in data["frames"]:
+            decoded = real_run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+                                "-i", frame["path"], "-vf", "crop=8:8:4:4,scale=1:1",
+                                "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, timeout=30)
+            self.assertEqual(decoded.returncode, 0, decoded.stderr)
+            expected_channel = 2 if frame["timestamp_seconds"] < 2 else (1 if frame["timestamp_seconds"] < 8 else 0)
+            self.assertEqual(max(range(3), key=lambda index: decoded.stdout[index]), expected_channel)
+        self.assertEqual(data["transcript_segments"], [{"start": 2.0, "end": 3.0, "text": "In-range evidence"}])
+        with wave.open(data["audio"]) as audio:
+            length = audio.getnframes() / 16000
+            self.assertAlmostEqual(length, 7.35, delta=0.1)
+            for local_time, expected_hz in ((0.1, 220), (1.0, 440), (length - 0.3, 880)):
+                audio.setpos(round(local_time * 16000))
+                samples = array("h", audio.readframes(3200))
+                crossings = sum((a < 0) != (b < 0) for a, b in zip(samples, samples[1:]))
+                self.assertAlmostEqual(crossings / 0.4, expected_hz, delta=20)
+
+    def test_native_remote_size_guard_stops_writes_and_keeps_captions(self):
+        real_which = shutil.which
+        output = self.root / "remote-size-refusal"
+        media_commands = []
+        with patch("download.shutil.which", side_effect=lambda name: "yt-dlp" if name == "yt-dlp" else real_which(name)), \
+             patch("download.subprocess.run", side_effect=self.remote_service(media_commands)), \
+             patch.object(download, "MAX_MEDIA_BYTES", 15000), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            result = watch.main(["https://youtu.be/example", "--subtitles", str(self.captions),
+                                 "--start", "1.35", "--end", "8.7", "--extract-audio", "--out-dir", str(output)])
+        self.assertEqual(result, 0)
+        media = next(output.glob("watch-*/download/fetch-*/video.mp4"))
+        # This fixture's full section encodes to more than 80 kB. Flushed size
+        # limiting stops early, with muxer/packet overshoot below this ceiling.
+        self.assertGreaterEqual(media.stat().st_size, 15000)
+        self.assertLess(media.stat().st_size, 30000)
+        self.assertEqual(len(media_commands), 1)
+        data = json.loads(next(output.glob("watch-*/manifest.json")).read_text())
+        self.assertEqual(data["frames"], [])
+        self.assertIsNone(data["audio"])
+        self.assertEqual(data["range"], {"start": 1.35, "end": 8.7})
+        self.assertEqual(len(data["transcript_segments"]), 1)
+        self.assertTrue(any("output limit" in warning for warning in data["warnings"]))
 
     def test_native_modes_keep_frames_and_audio_in_fractional_range(self):
         for mode in ("balanced", "efficient", "transcript"):

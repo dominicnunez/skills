@@ -33,6 +33,17 @@ unions without moving added words earlier, and records all cue requests
 with explicit range/budget omissions and sampling state, including media failure.
 Adds saved evidence reports/manifests, supplied-caption support, caption-language
 selection, partial-evidence preservation and offline contract tests.
+Remote media admission requires a finite section of at most 30 minutes;
+unknown durations need an explicit end and live streams are refused. Downloads
+use FFmpeg section seeking, accurate MP4/AAC re-encoding, explicit duration and
+256 MiB output-size guards with packet flushing, and reject media reaching that
+size or empty/truncated sections without falling
+back to a full download. Frame/cue/audio consumers translate between section
+local time and source time; manifests retain the downloaded source range.
+Refusal and failed-download paths retain known source metadata; the caption
+publication boundary clamps every remote range to the known source end.
+These guards bound media output rather than total transport bytes or elapsed
+time; FFmpeg can slightly overshoot its size guard during closing.
 
 The repository's [sources.json](https://github.com/dominicnunez/skills/blob/main/sources.json)
 records the upstream skill, helper and license SHA-256 hashes. The upstream
