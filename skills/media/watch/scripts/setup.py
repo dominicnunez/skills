@@ -15,16 +15,22 @@ def main() -> int:
     binaries = {name: shutil.which(name) for name in ("yt-dlp", "ffmpeg", "ffprobe")}
     missing = [name for name, path in binaries.items() if path is None]
     runtimes = {name: shutil.which(name) for name in ("deno", "node", "bun", "qjs")}
-    status = {"python": sys.version.split()[0], "binaries": binaries,
+    python_version = sys.version.split()[0]
+    problems = []
+    if sys.version_info < (3, 10):
+        problems.append(f"Python 3.10 or newer is required (found {python_version})")
+    if missing:
+        problems.append("Missing executables: " + ", ".join(missing))
+    status = {"python": python_version, "binaries": binaries,
               "missing_binaries": missing, "js_runtimes": runtimes,
-              "can_proceed": not missing and sys.version_info >= (3, 10),
+              "problems": problems, "can_proceed": not problems,
               "notes": ["YouTube requires a current yt-dlp distribution with EJS and a supported JS runtime.",
                         "Only Deno is enabled by yt-dlp by default; see SKILL.md for setup.",
-                        "Preflight checks presence only, not versions, EJS availability, or network access."]}
+                        "Media-tool checks use presence only, not versions, EJS availability, or network access."]}
     if args.json:
         print(json.dumps(status, indent=2))
     elif not args.check or not status["can_proceed"]:
-        print("Ready" if status["can_proceed"] else "Missing dependencies: " + ", ".join(missing))
+        print("Ready" if status["can_proceed"] else "Setup required:\n" + "\n".join(problems))
         print("See SKILL.md for setup; this script does not install anything.")
     return 0 if status["can_proceed"] else 2
 

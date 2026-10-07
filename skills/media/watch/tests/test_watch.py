@@ -15,8 +15,54 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import download
+import setup as preflight
 import watch
 from transcribe import parse_vtt
+
+
+class PreflightTests(unittest.TestCase):
+    def invoke(self, version, missing, option):
+        output = io.StringIO()
+        def locate(name):
+            return None if name in missing else f"/tools/{name}"
+        with patch("sys.argv", ["setup.py", *option]), patch.object(preflight.sys, "version_info", version), \
+             patch.object(preflight.sys, "version", ".".join(map(str, version))), \
+             patch.object(preflight.shutil, "which", side_effect=locate), contextlib.redirect_stdout(output):
+            result = preflight.main()
+        return result, output.getvalue()
+
+    def test_unsupported_python_has_a_reason_in_every_output(self):
+        for option in ([], ["--check"], ["--json"]):
+            for missing in ([], ["ffprobe"]):
+                with self.subTest(option=option, missing=missing):
+                    result, output = self.invoke((3, 9, 9), missing, option)
+                    self.assertEqual(result, 2)
+                    if option == ["--json"]:
+                        data = json.loads(output)
+                        self.assertFalse(data["can_proceed"])
+                        output = "\n".join(data["problems"])
+                    self.assertIn("Python 3.10 or newer", output)
+                    self.assertIn("3.9.9", output)
+                    if missing:
+                        self.assertIn("ffprobe", output)
+
+    def test_supported_python_distinguishes_ready_from_missing_binary(self):
+        for option in ([], ["--check"], ["--json"]):
+            with self.subTest(option=option):
+                result, output = self.invoke((3, 12, 0), [], option)
+                self.assertEqual(result, 0)
+                if option == ["--check"]:
+                    self.assertEqual(output, "")
+                if option == ["--json"]:
+                    self.assertTrue(json.loads(output)["can_proceed"])
+                    self.assertEqual(json.loads(output)["problems"], [])
+                result, output = self.invoke((3, 12, 0), ["ffmpeg"], option)
+                self.assertEqual(result, 2)
+                if option == ["--json"]:
+                    data = json.loads(output)
+                    self.assertFalse(data["can_proceed"])
+                    output = "\n".join(data["problems"])
+                self.assertIn("ffmpeg", output)
 
 
 class DownloadTests(unittest.TestCase):

@@ -66,8 +66,9 @@ python (Join-Path $watchSkillDir 'scripts/setup.py') --json
 ```
 
 On macOS/Linux use `python3 "$watchSkillDir/scripts/setup.py" --json`.
-Preflight reads executable paths and reports missing tools; it never installs
-or changes configuration. `--check` is silent on success. Presence does not
+Preflight reports unsupported Python versions and missing executable paths;
+it never installs or changes configuration. JSON includes explicit `problems`,
+and `--check` is silent on success. Presence does not
 prove tool versions, EJS availability or network access. Missing tools need not
 block a sidecar-caption-only pass that does not use them.
 
