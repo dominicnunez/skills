@@ -12,6 +12,8 @@ import sys
 from html import unescape
 from pathlib import Path
 
+from output import display_text
+
 
 TS_RE = re.compile(
     r"((?:\d{2,}:)?\d{2}:\d{2}[.,]\d{3})\s+-->\s+((?:\d{2,}:)?\d{2}:\d{2}[.,]\d{3})"
@@ -89,7 +91,7 @@ def format_transcript(segments: list[dict]) -> str:
     for seg in segments:
         start = int(seg["start"])
         stamp = f"[{start // 60:02d}:{start % 60:02d}]"
-        lines.append(f"{stamp} {seg['text']}")
+        lines.append(f"{stamp} {display_text(seg['text'])}")
     return "\n".join(lines)
 
 

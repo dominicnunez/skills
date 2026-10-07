@@ -42,6 +42,11 @@ back to a full download. Frame/cue/audio consumers translate between section
 local time and source time; manifests retain the downloaded source range.
 Refusal and failed-download paths retain known source metadata; the caption
 publication boundary clamps every remote range to the known source end.
+Shared display rendering visibly encodes C0/C1/DEL controls in reports,
+transcripts, parser messages, tool logs and media failure diagnostics. Diagnostic
+streaming requests UTF-8 Python output and uses bounded UTF-8 chunks; malformed
+bytes become replacements. Machine JSON retains source values through
+escapes. Original caption/media evidence is preserved.
 These guards bound media output rather than total transport bytes or elapsed
 time; FFmpeg can slightly overshoot its size guard during closing.
 

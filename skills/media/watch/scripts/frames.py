@@ -17,6 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from output import display_text
+
 
 MAX_FPS = 2.0
 SCENE_THRESHOLD = 0.20
@@ -118,7 +120,7 @@ def get_metadata(video_path: str) -> dict:
         text=True,
     )
     if result.returncode != 0:
-        raise SystemExit(f"ffprobe failed: {result.stderr.strip()}")
+        raise SystemExit(display_text(f"ffprobe failed: {result.stderr.strip()}"))
 
     data = json.loads(result.stdout or "{}")
     streams = data.get("streams", [])
@@ -205,7 +207,7 @@ def _scan_candidates(command: list[str], targets: list[float] | None) -> tuple[i
                 previous = (count, timestamp)
                 count += 1
             if process.wait():
-                raise SystemExit("ffmpeg candidate scan failed: " + "\n".join(tail))
+                raise SystemExit(display_text("ffmpeg candidate scan failed: " + "\n".join(tail)))
         except BaseException:
             if process.poll() is None:
                 process.kill()
@@ -267,7 +269,7 @@ def _select_candidates(video_path: str, out_dir: Path, resolution: int,
                         "-q:v", "4", str(out_dir / "frame_%04d.jpg")]
     result = subprocess.run(render, capture_output=True, text=True)
     if result.returncode:
-        raise SystemExit(f"ffmpeg frame extraction failed: {result.stderr.strip()}")
+        raise SystemExit(display_text(f"ffmpeg frame extraction failed: {result.stderr.strip()}"))
     files = sorted(out_dir.glob("frame_*.jpg"))
     frames = _decoded_frames(files, result.stderr, start, end, engine if engine != "scene" else "scene-change")
     if engine == "scene" and frames:

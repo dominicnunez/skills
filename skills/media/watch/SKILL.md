@@ -155,6 +155,12 @@ Empty or truncated sections are refused before publishing media evidence;
 usable captions remain in the report.
 Known source metadata survives media refusal or failure, and caption selection
 still respects the source end.
+Reports, transcripts, parser messages and tool diagnostics visibly encode
+C0/C1/DEL terminal controls while retaining ordinary Unicode, line feeds and
+tabs. Tool diagnostics request UTF-8 Python output and stream in bounded chunks.
+Invalid UTF-8 bytes become replacement characters. Machine manifests use
+JSON escapes and retain the parsed source text; original VTT/media files remain
+untrusted evidence and should not be echoed directly to a terminal.
 These guards bound media output, not total network bytes, elapsed time,
 metadata or caption files. An inefficient remote seek can still read a prefix.
 

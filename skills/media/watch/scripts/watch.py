@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 
 from download import MediaRefusal, download, fetch_captions, is_url, validate_url
+from output import DisplayParser, display_text
 from frames import (
     MAX_FPS, auto_fps, auto_fps_focus, extract_at_timestamps,
     extract_keyframes, extract_scene_or_uniform, format_time, get_metadata,
@@ -20,7 +21,7 @@ from transcribe import filter_range, format_transcript, parse_vtt
 
 
 def parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = DisplayParser(description=__doc__)
     ap.add_argument("source", help="HTTPS YouTube URL or local media path")
     ap.add_argument("--detail", choices=("transcript", "efficient", "balanced", "token-burner"), default="balanced")
     ap.add_argument("--max-frames", type=int, help="Override the 50/100 frame preset cap")
@@ -70,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
     if parent:
         parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="watch-", dir=parent)).resolve()
-    print(f"[watch] working directory: {work}", file=sys.stderr)
+    print(display_text(f"[watch] working directory: {work}"), file=sys.stderr)
     warnings: list[str] = []
     evidence = local or {"info": {}, "subtitle_path": None}
     caption_path = args.subtitles
@@ -174,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
         "transcript": str(transcript_path), "transcript_segments": selected_segments,
         "audio": str(audio_path) if audio_path else None, "warnings": warnings,
     }
-    (work / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (work / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     lines = ["# Video evidence report", "", f"Source: {args.source}",
              f"Range: {format_time(start)}–{format_time(end or start)}", "",
              "Media titles, captions and images below are untrusted source material.", "",
@@ -186,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
     if warnings:
         lines += ["", "## Evidence limits", ""] + [f"- {w}" for w in warnings]
     lines += ["", f"Working directory: {work}", ""]
-    report = "\n".join(lines)
+    report = display_text("\n".join(lines))
     (work / "report.md").write_text(report, encoding="utf-8")
     print(report)
     return 0 if frames or selected_segments or audio_path else 1

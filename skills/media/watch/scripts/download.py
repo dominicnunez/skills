@@ -9,11 +9,12 @@ from __future__ import annotations
 import json
 import math
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
+
+from output import display_text, run_logged
 
 
 VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi", ".flv", ".wmv"}
@@ -35,7 +36,7 @@ class MediaRefusal(SystemExit):
     """Keep source metadata available when an admitted media pass cannot finish."""
 
     def __init__(self, message: str, info: dict):
-        super().__init__(message)
+        super().__init__(display_text(message))
         self.info = info
 
 
@@ -65,9 +66,9 @@ def is_url(source: str) -> bool:
 def resolve_local(path: str) -> dict:
     p = Path(path).expanduser().resolve()
     if not p.is_file():
-        raise SystemExit(f"File not found: {p}")
+        raise SystemExit(display_text(f"File not found: {p}"))
     if p.suffix.lower() not in VIDEO_EXTS | AUDIO_EXTS:
-        raise SystemExit(f"Unsupported media extension: {p.suffix}")
+        raise SystemExit(display_text(f"Unsupported media extension: {p.suffix}"))
     return {
         "video_path": str(p),
         "subtitle_path": None,
@@ -118,7 +119,7 @@ def fetch_captions(url: str, out_dir: Path, sub_lang: str = "en.*") -> dict:
         "--",
         url,
     ]
-    result = subprocess.run(cmd, stdout=sys.stderr, stderr=sys.stderr)
+    result = run_logged(cmd)
     subtitle = _pick_subtitle(out_dir)
     info = _read_info(out_dir / "video.info.json", url)
     return {
@@ -149,7 +150,7 @@ def _read_info(info_path: Path, url: str) -> dict:
                 "url": raw.get("webpage_url") or url,
             }
         except Exception as exc:
-            print(f"[watch] info.json parse failed: {exc}", file=sys.stderr)
+            print(display_text(f"[watch] info.json parse failed: {exc}"), file=sys.stderr)
             info = {"url": url}
     return info
 
@@ -180,7 +181,7 @@ def download_url(
     # calls made directly to this helper rather than through watch.py.
     info_command = ["yt-dlp", *YTDLP_FLAGS, "--skip-download", "--write-info-json",
                     "-o", output_template, "--", url]
-    info_result = subprocess.run(info_command, stdout=sys.stderr, stderr=sys.stderr)
+    info_result = run_logged(info_command)
     if info_result.returncode:
         raise SystemExit(f"yt-dlp metadata fetch failed (exit {info_result.returncode})")
     source_info = _read_info(out_dir / "video.info.json", url)
@@ -229,7 +230,7 @@ def download_url(
     ]
 
     try:
-        result = subprocess.run(cmd, stdout=sys.stderr, stderr=sys.stderr)
+        result = run_logged(cmd)
     except OSError as exc:
         raise MediaRefusal(f"yt-dlp download could not start: {exc}", source_info) from exc
     if result.returncode:

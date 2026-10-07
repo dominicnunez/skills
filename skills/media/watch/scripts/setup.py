@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Read-only dependency preflight. Does not install tools or create configuration."""
-import argparse
 import json
 import shutil
 import sys
 
+from output import DisplayParser
+
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = DisplayParser(description=__doc__)
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true")
     mode.add_argument("--check", action="store_true", help="Silent on success")

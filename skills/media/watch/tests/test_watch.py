@@ -4,6 +4,7 @@ from array import array
 import io
 import json
 import os
+import random
 import shlex
 import shutil
 import subprocess
@@ -20,6 +21,24 @@ import download
 import setup as preflight
 import watch
 from transcribe import filter_range, parse_vtt
+
+
+class OutputTests(unittest.TestCase):
+    def test_generated_text_preserves_allowed_characters_and_composes(self):
+        from output import display_text
+        generator = random.Random(7)
+        safe = "\t\nCafé 中文🚲" + "".join(
+            chr(point) for point in (generator.randrange(0x110000) for _ in range(1024))
+            if point >= 160 and not 0xD800 <= point <= 0xDFFF
+        )
+        self.assertEqual(display_text(safe), safe)
+        controls = "".join(chr(point) for point in [*range(32), 127, *range(128, 160)])
+        mixed = safe[:len(safe) // 2] + controls + safe[len(safe) // 2:]
+        shown = display_text(mixed)
+        self.assertFalse(any((ord(c) < 32 and c not in "\n\t") or 127 <= ord(c) < 160 for c in shown))
+        self.assertEqual(display_text(shown), shown)
+        for cut in (0, 1, len(safe) // 2, len(mixed) - 1, len(mixed)):
+            self.assertEqual(display_text(mixed[:cut]) + display_text(mixed[cut:]), shown)
 
 
 class PreflightTests(unittest.TestCase):
@@ -82,10 +101,34 @@ class PreflightTests(unittest.TestCase):
 
 
 class DownloadTests(unittest.TestCase):
+    def test_caption_tool_diagnostics_escape_controls(self):
+        controls = "".join(chr(n) for n in [*range(32), 127, *range(128, 160)] if n not in (9, 10))
+        payload = "Source diagnostics " + controls + "\n\tCafé 中文\n"
+        code = f"import sys; payload={payload!r}*257; sys.stdout.write(payload); sys.stdout.flush(); sys.stderr.write(payload)"
+        real_popen = subprocess.Popen
+        def fixture_process(command, **kwargs):
+            return real_popen([sys.executable, "-B", "-u", "-c", code], **kwargs)
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "console.txt"
+            with log.open("w+", encoding="utf-8", newline="") as terminal, \
+                 contextlib.redirect_stderr(terminal), patch("download.shutil.which", return_value="yt-dlp"), \
+                 patch.dict(os.environ, {"PYTHONIOENCODING": "ascii"}), \
+                 patch("output.subprocess.Popen", side_effect=fixture_process):
+                result = download.fetch_captions("https://youtu.be/example", Path(folder))
+                terminal.flush()
+                terminal.seek(0)
+                output = terminal.read()
+            self.assertIsNone(result["caption_warning"])
+            self.assertFalse(any((ord(c) < 32 and c not in "\n\t") or 127 <= ord(c) < 160 for c in output))
+            self.assertIn("\\u001b", output)
+            self.assertIn("\\u009b", output)
+            self.assertIn("Café 中文", output)
+            self.assertEqual(output.count("Café 中文"), 514)
+
     def test_caption_request_cannot_load_config_or_plugins(self):
         with tempfile.TemporaryDirectory() as folder:
             with patch("download.shutil.which", return_value="yt-dlp"):
-                with patch("download.subprocess.run") as run:
+                with patch("download.run_logged") as run:
                     run.return_value = subprocess.CompletedProcess([], 0)
                     download.fetch_captions("https://youtu.be/example", Path(folder))
             command = run.call_args.args[0]
@@ -105,7 +148,7 @@ class DownloadTests(unittest.TestCase):
                         Path(template.replace("%(ext)s", "info.json")).write_text(json.dumps({"duration": 10}))
                         return subprocess.CompletedProcess(command, 0)
                     return subprocess.CompletedProcess(command, 1)
-                with patch("download.subprocess.run", side_effect=fail_media):
+                with patch("download.run_logged", side_effect=fail_media):
                     with self.assertRaises(SystemExit):
                         download.download_url("https://youtu.be/new-video", output)
 
@@ -119,7 +162,7 @@ class DownloadTests(unittest.TestCase):
                     Path(template.replace("%(ext)s", "f137.mp4")).write_bytes(b"component")
                 return subprocess.CompletedProcess(command, 0)
             with patch("download.shutil.which", return_value="yt-dlp"):
-                with patch("download.subprocess.run", side_effect=incomplete):
+                with patch("download.run_logged", side_effect=incomplete):
                     with self.assertRaisesRegex(SystemExit, "did not produce"):
                         download.download_url("https://youtu.be/example", Path(folder))
 
@@ -135,7 +178,7 @@ class DownloadTests(unittest.TestCase):
                         Path(template.replace("%(ext)s", "mp4")).write_bytes(b"oversized source")
                     return subprocess.CompletedProcess(command, 0)
                 with patch("download.shutil.which", return_value="yt-dlp"), \
-                     patch("download.subprocess.run", side_effect=video_service):
+                     patch("download.run_logged", side_effect=video_service):
                     with self.assertRaises(SystemExit):
                         download.download("https://youtu.be/example", Path(folder))
                 self.assertEqual(media_calls, [])
@@ -145,7 +188,7 @@ class DownloadTests(unittest.TestCase):
         for start, end in ((-1, 2), (0, float("inf")), (1, 1), (3, 2), (0, 1801)):
             with self.subTest(start=start, end=end), tempfile.TemporaryDirectory() as folder:
                 output = Path(folder) / "uncreated"
-                with patch("download.subprocess.run") as run:
+                with patch("download.run_logged") as run:
                     with self.assertRaises(SystemExit):
                         download.download_url("https://youtu.be/example", output,
                                               start_seconds=start, end_seconds=end)
@@ -164,7 +207,7 @@ class DownloadTests(unittest.TestCase):
                         Path(template.replace("%(ext)s", "m4a" if audio_only else "mp4")).write_bytes(b"x" * 64)
                     return subprocess.CompletedProcess(command, 0)
                 with patch("download.shutil.which", return_value="yt-dlp"), \
-                     patch("download.subprocess.run", side_effect=video_service), \
+                     patch("download.run_logged", side_effect=video_service), \
                      patch.object(download, "MAX_MEDIA_BYTES", 64):
                     with self.assertRaisesRegex(SystemExit, "output limit"):
                         download.download_url("https://youtu.be/example", Path(folder), audio_only=audio_only,
@@ -196,6 +239,83 @@ class WatchTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             return watch.main([str(self.media), "--out-dir", str(self.output), *args])
 
+    def test_caption_controls_are_visible_in_saved_and_console_text(self):
+        payload = "Visible \x1b[2J \x1b]52;c;ZmFrZQ==\x07 \x08 \x9b2J Café 中文"
+        self.captions.write_text(f"WEBVTT\n\n00:01.000 --> 00:02.000\n{payload}\n", encoding="utf-8")
+        console = io.StringIO()
+        with contextlib.redirect_stdout(console), contextlib.redirect_stderr(io.StringIO()):
+            result = watch.main([str(self.media), "--detail", "transcript", "--subtitles", str(self.captions),
+                                 "--out-dir", str(self.output)])
+        self.assertEqual(result, 0)
+        run = next(self.output.iterdir())
+        for rendered in (console.getvalue(), (run / "report.md").read_text(encoding="utf-8"),
+                         (run / "transcript.txt").read_text(encoding="utf-8")):
+            self.assertFalse(any((ord(c) < 32 and c not in "\n\t") or 127 <= ord(c) < 160 for c in rendered))
+            self.assertIn("\\u001b[2J", rendered)
+            self.assertIn("Café 中文", rendered)
+        data = json.loads((run / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(data["transcript_segments"][0]["text"], payload)
+        raw_manifest = (run / "manifest.json").read_text(encoding="utf-8")
+        self.assertNotIn("\x9b", raw_manifest)
+        from transcribe import format_transcript
+        self.assertNotIn("\x1b", format_transcript(data["transcript_segments"]))
+        cli = subprocess.run([sys.executable, "-B", "-X", "utf8", str(SCRIPTS / "transcribe.py"), str(self.captions)],
+                             capture_output=True, text=True, encoding="utf-8", check=True)
+        self.assertNotIn("\x1b", cli.stdout)
+        self.assertNotIn("\x9b", cli.stdout)
+        self.assertIn("Café 中文", cli.stdout)
+
+    def test_report_fields_and_failure_diagnostics_escape_controls(self):
+        payload = "\x1b[2J\x1b]52;c;ZmFrZQ==\x07\x9b2J"
+        source = "https://youtu.be/example?label=" + payload
+        evidence = {"info": {"duration": 6, "title": payload}, "subtitle_path": str(self.captions)}
+        console = io.StringIO()
+        with patch("watch.fetch_captions", return_value=evidence), \
+             patch("watch.download", side_effect=SystemExit("Source failure " + payload)), \
+             contextlib.redirect_stdout(console), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(watch.main([source, "--out-dir", str(self.output)]), 0)
+        run = next(self.output.iterdir())
+        for rendered in (console.getvalue(), (run / "report.md").read_text(encoding="utf-8"),
+                         (run / "manifest.json").read_text(encoding="utf-8")):
+            self.assertFalse(any((ord(c) < 32 and c not in "\n\t") or 127 <= ord(c) < 160 for c in rendered))
+        data = json.loads((run / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(data["source"], source)
+        self.assertEqual(data["info"]["title"], payload)
+        self.assertIn("Source failure", console.getvalue())
+
+    def test_parser_errors_escape_controls(self):
+        for entry in ("watch", "setup"):
+            with self.subTest(entry=entry):
+                console = io.StringIO()
+                with contextlib.redirect_stderr(console), self.assertRaises(SystemExit) as error:
+                    if entry == "watch":
+                        watch.main([str(self.media), "--unknown\x1b[2J"])
+                    else:
+                        with patch("sys.argv", ["setup.py", "--unknown\x1b[2J"]):
+                            preflight.main()
+                self.assertEqual(error.exception.code, 2)
+                self.assertNotIn("\x1b", console.getvalue())
+                self.assertIn("\\u001b[2J", console.getvalue())
+
+    def test_probe_failure_escapes_diagnostics_and_preserves_captions(self):
+        from frames import get_metadata
+        payload = "Decoder error \x1b[2J \x1b]52;c;ZmFrZQ==\x07 \x9b2J"
+        with patch("frames.shutil.which", return_value="ffprobe"), \
+             patch("frames.subprocess.run", return_value=subprocess.CompletedProcess([], 1, "", payload)):
+            with self.assertRaises(SystemExit) as error:
+                get_metadata(str(self.media))
+            self.assertNotIn("\x1b", str(error.exception))
+            self.assertNotIn("\x9b", str(error.exception))
+            self.assertIn("\\u001b", str(error.exception))
+            self.assertEqual(self.invoke("--subtitles", str(self.captions), "--extract-audio"), 0)
+        data = json.loads(next(self.output.glob("watch-*/manifest.json")).read_text())
+        self.assertEqual(len(data["transcript_segments"]), 2)
+        self.assertEqual(data["frames"], [])
+        self.assertIsNone(data["audio"])
+        report = next(self.output.glob("watch-*/report.md")).read_text(encoding="utf-8")
+        self.assertIn("Decoder error", report)
+        self.assertNotIn("\x1b", report)
+
     def test_unknown_remote_duration_keeps_caption_evidence(self):
         for duration in ("invalid", float("inf"), float("nan")):
             with self.subTest(duration=duration):
@@ -209,7 +329,7 @@ class WatchTests(unittest.TestCase):
                         media_calls.append(command)
                     return subprocess.CompletedProcess(command, 0)
                 with patch("download.shutil.which", return_value="yt-dlp"), \
-                     patch("download.subprocess.run", side_effect=video_service), \
+                     patch("download.run_logged", side_effect=video_service), \
                      contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                     self.assertEqual(watch.main(["https://youtu.be/example", "--out-dir", str(self.output)]), 0)
                 data = json.loads(max(self.output.glob("watch-*/manifest.json"), key=lambda p: p.stat().st_mtime_ns).read_text())
@@ -221,7 +341,7 @@ class WatchTests(unittest.TestCase):
                 self.assertEqual(media_calls, [])
 
     def test_overlong_remote_range_keeps_captions_without_media_transfer(self):
-        with patch("download.subprocess.run") as run, \
+        with patch("download.run_logged") as run, \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             result = watch.main(["https://youtu.be/example", "--subtitles", str(self.captions),
                                  "--end", "3600", "--extract-audio", "--out-dir", str(self.output)])
@@ -267,7 +387,7 @@ class WatchTests(unittest.TestCase):
                         media_calls.append(command)
                     return subprocess.CompletedProcess(command, 0)
                 with patch("download.shutil.which", return_value="yt-dlp"), \
-                     patch("download.subprocess.run", side_effect=video_service), \
+                     patch("download.run_logged", side_effect=video_service), \
                      patch("watch.get_metadata") as probe, \
                      contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                     status = watch.main(["https://youtu.be/example", "--subtitles", str(self.captions),
@@ -298,7 +418,7 @@ class WatchTests(unittest.TestCase):
                         Path(template.replace("%(ext)s", "mp4")).write_bytes(b"x" * 64)
                     return subprocess.CompletedProcess(command, 1 if failure == "exit" else 0)
                 with patch("download.shutil.which", return_value="yt-dlp"), \
-                     patch("download.subprocess.run", side_effect=video_service), \
+                     patch("download.run_logged", side_effect=video_service), \
                      patch.object(download, "MAX_MEDIA_BYTES", 64), patch("watch.get_metadata") as probe, \
                      contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                     status = watch.main(["https://youtu.be/example", "--subtitles", str(self.captions),
@@ -318,7 +438,7 @@ class WatchTests(unittest.TestCase):
         evidence = {"info": {"duration": 6}, "subtitle_path": str(self.captions)}
         with patch("watch.fetch_captions", return_value=evidence), \
              patch("download.shutil.which", return_value="yt-dlp"), \
-             patch("download.subprocess.run", return_value=subprocess.CompletedProcess([], 1)) as run, \
+             patch("download.run_logged", return_value=subprocess.CompletedProcess([], 1)) as run, \
              patch("watch.get_metadata") as probe, \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             status = watch.main(["https://youtu.be/example", "--start", "1", "--end", "10",
@@ -589,7 +709,7 @@ class MediaTests(unittest.TestCase):
         output = self.root / "remote-focus"
         media_commands = []
         with patch("download.shutil.which", side_effect=lambda name: "yt-dlp" if name == "yt-dlp" else real_which(name)), \
-             patch("download.subprocess.run", side_effect=self.remote_service(media_commands)), \
+             patch("download.run_logged", side_effect=self.remote_service(media_commands)), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             result = watch.main(["https://youtu.be/example", "--subtitles", str(self.captions),
                                  "--start", "1.35", "--end", "8.7", "--max-frames", "3",
@@ -630,7 +750,7 @@ class MediaTests(unittest.TestCase):
         output = self.root / "remote-size-refusal"
         media_commands = []
         with patch("download.shutil.which", side_effect=lambda name: "yt-dlp" if name == "yt-dlp" else real_which(name)), \
-             patch("download.subprocess.run", side_effect=self.remote_service(media_commands)), \
+             patch("download.run_logged", side_effect=self.remote_service(media_commands)), \
              patch.object(download, "MAX_MEDIA_BYTES", 15000), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             result = watch.main(["https://youtu.be/example", "--subtitles", str(self.captions),
