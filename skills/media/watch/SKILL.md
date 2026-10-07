@@ -96,7 +96,7 @@ Options:
 | `--detail balanced` | Scene changes with uniform fallback; cap 100; default |
 | `--detail token-burner` | Uncapped scene candidates; use only when the user needs that volume of images |
 | `--start 2:15 --end 2:45` | Focus evidence on a source interval; times accept seconds, MM:SS or HH:MM:SS |
-| `--timestamps 2:17,2:30` | Pin visual cues at absolute source times, reserving their share of the cap |
+| `--timestamps 2:17,2:30` | Request cue frames at source times, reserving their share of the cap; the manifest distinguishes the request from the decoded frame time |
 | `--max-frames 30` | Tighten the frame budget |
 | `--resolution 1024` | Increase width for small on-screen text; default 512; maximum 4096 |
 | `--fps 1` | Override uniform sampling; capped at 2 fps and reduced to span the interval within the frame budget |

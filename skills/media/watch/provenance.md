@@ -18,7 +18,8 @@ HTTPS YouTube hosts and FFmpeg input protocols to local files/pipes. Requires
 successful final downloads, validates CLI budgets/ranges, spans uniform frame
 budgets across the interval and records range-checked decoded timestamps.
 Uses current FFmpeg timing options; supports short and long WebVTT cue times
-and keeps audio extraction independent of frame failures.
+and keeps audio extraction independent of frame failures. Cue frames retain
+their requested time separately from the decoded, range-checked source time.
 Adds saved evidence reports/manifests, supplied-caption support, caption-language
 selection, partial-evidence preservation and offline contract tests.
 

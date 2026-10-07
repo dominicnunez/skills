@@ -231,6 +231,25 @@ class MediaTests(unittest.TestCase):
         self.assertTrue(all(1.3 <= f["timestamp_seconds"] <= 8.7 for f in data["frames"]))
         self.assertGreater(data["frames"][-1]["timestamp_seconds"], 6.0)
 
+    def test_cue_uses_decoded_source_time_and_cannot_cross_end(self):
+        for label, end in (("cue-inside", "8.7"), ("cue-outside", "2.05")):
+            with self.subTest(end=end):
+                output = self.root / label
+                result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "watch.py"), str(self.media),
+                                         "--subtitles", str(self.captions), "--detail", "transcript",
+                                         "--start", "2", "--end", end, "--timestamps", "2.04",
+                                         "--out-dir", str(output)], capture_output=True, text=True,
+                                        env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                data = json.loads(next(output.glob("watch-*/manifest.json")).read_text(encoding="utf-8"))
+                if label == "cue-inside":
+                    self.assertEqual(len(data["frames"]), 1)
+                    self.assertAlmostEqual(data["frames"][0]["timestamp_seconds"], 2.1, delta=0.001)
+                    self.assertEqual(data["frames"][0]["requested_seconds"], 2.04)
+                else:
+                    self.assertEqual(data["frames"], [])
+                    self.assertTrue(any("cue frames" in w for w in data["warnings"]))
+
 
 if __name__ == "__main__":
     unittest.main()

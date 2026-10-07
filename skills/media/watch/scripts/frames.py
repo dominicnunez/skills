@@ -347,7 +347,7 @@ def extract_at_timestamps(
 
     lo = start_seconds or 0.0
     hi = end_seconds if end_seconds is not None else float("inf")
-    requested = sorted(set(round(float(t), 2) for t in timestamps))
+    requested = sorted(set(float(t) for t in timestamps))
     in_window = [t for t in requested if lo <= t <= hi]
     dropped = len(requested) - len(in_window)
 
@@ -362,23 +362,22 @@ def extract_at_timestamps(
         cmd = [
             "ffmpeg", "-nostdin", "-protocol_whitelist", "file,pipe",
             "-hide_banner",
-            "-loglevel", "error",
+            "-loglevel", "info",
             "-y",
-            "-ss", f"{t:.3f}",
+            "-ss", f"{t:.6f}",
             "-i", str(Path(video_path).resolve()),
             "-frames:v", "1",
-            "-vf", _scale_filter(resolution),
+            "-vf", f"{_scale_filter(resolution)},showinfo",
             "-q:v", "4",
             str(path),
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0 and path.exists():
-            out.append({
-                "index": len(out),
-                "timestamp_seconds": t,
-                "path": str(path),
-                "reason": "transcript-cue",
-            })
+            decoded = _decoded_frames([path], result.stderr, t, end_seconds, "transcript-cue")
+            for frame in decoded:
+                frame["index"] = len(out)
+                frame["requested_seconds"] = t
+                out.append(frame)
 
     meta = {
         "engine": "timestamps",
