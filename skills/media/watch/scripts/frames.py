@@ -9,6 +9,8 @@ zooming in for detail).
 from __future__ import annotations
 
 import json
+import math
+from collections import deque
 import re
 import shutil
 import subprocess
@@ -20,9 +22,8 @@ MAX_FPS = 2.0
 SCENE_THRESHOLD = 0.20
 # Keep scene-detection results once we have at least this many distinct shots.
 # Below this the video is effectively static (screen recording, talking head),
-# so we fall back to uniform sampling. Matching the reference fork's behaviour,
-# this is a low floor — NOT the frame budget — so normal videos with cuts use
-# the (single-pass) scene engine instead of paying for a wasted second decode.
+# so we fall back to uniform sampling. This floor is based on the candidate
+# count before selection, independently of a small user-specified frame budget.
 SCENE_MIN_FRAMES = 8
 # Below this many decoded keyframes a clip is too sparse for keyframe coverage
 # (very short or oddly encoded), so the cheap tier falls back to uniform.
@@ -176,108 +177,125 @@ def auto_fps_focus(duration_seconds: float, max_frames: int = 100) -> tuple[floa
     return _clamp_fps(target / duration_seconds, duration_seconds, max_frames)
 
 
-def extract(
-    video_path: str,
-    out_dir: Path,
-    fps: float,
-    resolution: int = 512,
-    max_frames: int = 100,
-    start_seconds: float | None = None,
-    end_seconds: float | None = None,
-) -> list[dict]:
-    if shutil.which("ffmpeg") is None:
-        raise SystemExit("ffmpeg is not installed. See SKILL.md for dependency setup")
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for existing in out_dir.glob("frame_*.jpg"):
-        existing.unlink()
-
-    duration = (end_seconds if end_seconds is not None else get_metadata(video_path)["duration_seconds"]) - (start_seconds or 0.0)
-    fps = min(fps, MAX_FPS, max_frames / duration)
-    output_pattern = str(out_dir / "frame_%04d.jpg")
-    cmd: list[str] = [
-        "ffmpeg", "-nostdin", "-protocol_whitelist", "file,pipe",
-        "-hide_banner",
-        "-loglevel", "info",
-        "-y",
-    ]
-
-    # Fast input seek plus output-relative duration; returned PTS are checked too.
-    if start_seconds is not None:
-        cmd += ["-ss", f"{start_seconds:.3f}"]
-    cmd += [
-        "-i", str(Path(video_path).resolve()),
-        "-t", f"{duration:.6f}",
-        "-vf", f"select='isnan(prev_selected_t)+gte(t-prev_selected_t\\,{1 / fps})',{_scale_filter(resolution)},showinfo",
-        "-fps_mode", "vfr",
-        "-frames:v", str(max_frames),
-        "-q:v", "4",
-        output_pattern,
-    ]
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise SystemExit(f"ffmpeg frame extraction failed: {result.stderr.strip()}")
-
-    frames = sorted(out_dir.glob("frame_*.jpg"))
-    return _decoded_frames(frames, result.stderr, start_seconds, end_seconds, "uniform")
+def _scan_candidates(command: list[str], targets: list[float] | None) -> tuple[int, list[int]]:
+    """Count candidates with bounded memory and optionally choose time targets."""
+    count = 0
+    chosen: list[int] = []
+    previous: tuple[int, float] | None = None
+    next_target = 0
+    tail: deque[str] = deque(maxlen=20)
+    with subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                          text=True, encoding="utf-8", errors="replace") as process:
+        try:
+            for line in process.stderr:
+                tail.append(line.rstrip())
+                match = SHOWINFO_TS_RE.search(line)
+                if match is None:
+                    continue
+                timestamp = float(match.group(1))
+                if targets:
+                    # The final target is the actual last candidate, chosen at EOF.
+                    limit = len(targets) - 1 if len(targets) > 1 else 1
+                    while next_target < limit and timestamp >= targets[next_target]:
+                        candidate = (count, timestamp)
+                        if previous and abs(previous[1] - targets[next_target]) <= abs(timestamp - targets[next_target]):
+                            candidate = previous
+                        chosen.append(candidate[0])
+                        next_target += 1
+                previous = (count, timestamp)
+                count += 1
+            if process.wait():
+                raise SystemExit("ffmpeg candidate scan failed: " + "\n".join(tail))
+        except BaseException:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            raise
+    if targets and count and len(targets) > 1:
+        chosen.append(count - 1)
+    return count, sorted(set(chosen))
 
 
-def extract_scene_candidates(
-    video_path: str,
-    out_dir: Path,
-    resolution: int = 512,
-    max_frames: int | None = 100,
-    start_seconds: float | None = None,
-    end_seconds: float | None = None,
-    threshold: float = SCENE_THRESHOLD,
-) -> list[dict]:
-    """Extract first frame plus ffmpeg scene-change frames.
+def _select_candidates(video_path: str, out_dir: Path, resolution: int,
+                       max_frames: int | None, start: float | None,
+                       end: float | None, engine: str,
+                       threshold: float = SCENE_THRESHOLD,
+                       fps: float | None = None) -> tuple[list[dict], int]:
+    """Scan without JPEGs, then decode only selected candidate indices to images.
 
-    When ``max_frames`` is set, ``-frames:v`` lets ffmpeg stop decoding once it
-    has emitted that many frames (early exit) and avoids writing extras that we
-    would only delete afterwards. ``None`` (uncapped "complete" detail) keeps
-    every detected shot, as the user explicitly opted in.
+    Capped modes keep O(cap) selection metadata and materialize at most the cap.
+    Both passes decode the range; the extra pass avoids unbounded scratch files.
     """
     if shutil.which("ffmpeg") is None:
         raise SystemExit("ffmpeg is not installed. See SKILL.md for dependency setup")
-
+    end = end if end is not None else get_metadata(video_path)["duration_seconds"]
+    duration = end - (start or 0.0)
+    if not math.isfinite(duration) or duration <= 0:
+        raise SystemExit("Frame extraction requires a finite positive interval")
     out_dir.mkdir(parents=True, exist_ok=True)
     for existing in out_dir.glob("frame_*.jpg"):
         existing.unlink()
+    command = ["ffmpeg", "-nostdin", "-protocol_whitelist", "file,pipe",
+               "-hide_banner", "-loglevel", "info", "-nostats", "-y"]
+    if start is not None:
+        command += ["-ss", f"{start:.6f}"]
+    if engine == "keyframe":
+        command += ["-skip_frame", "nokey"]
+    command += ["-i", str(Path(video_path).resolve()), "-an"]
+    filters = [f"select='gte(t\\,0)*lt(t\\,{duration:.9f})'"]
+    if engine == "scene":
+        filters += [f"select='eq(n\\,0)+gt(scene\\,{threshold})'"]
+    targets = None
+    if engine == "uniform":
+        if fps is None or not math.isfinite(fps) or fps <= 0 or max_frames is None or max_frames < 1:
+            raise SystemExit("Uniform extraction requires positive FPS and a frame cap")
+        n = min(max_frames, max(1, math.ceil(min(fps, MAX_FPS) * duration)))
+        targets = [0.0] if n == 1 else [i * duration / (n - 1) for i in range(n)]
+    scan_filter = ",".join([*filters, "showinfo"])
+    scan = command + ["-vf", scan_filter, "-fps_mode", "vfr", "-t", f"{duration:.6f}", "-f", "null", "-"]
+    count, time_indices = _scan_candidates(scan, targets)
+    if count == 0:
+        return [], 0
+    indices = time_indices if targets else (_even_indices(count, max_frames) if max_frames is not None else None)
+    output_filter = list(filters)
+    if indices is not None:
+        if not indices:
+            return [], count
+        output_filter += ["select='" + "+".join(f"eq(n\\,{i})" for i in indices) + "'"]
+    output_filter += [_scale_filter(resolution), "showinfo"]
+    render = command + ["-vf", ",".join(output_filter), "-fps_mode", "vfr", "-t", f"{duration:.6f}",
+                        "-q:v", "4", str(out_dir / "frame_%04d.jpg")]
+    result = subprocess.run(render, capture_output=True, text=True)
+    if result.returncode:
+        raise SystemExit(f"ffmpeg frame extraction failed: {result.stderr.strip()}")
+    files = sorted(out_dir.glob("frame_*.jpg"))
+    frames = _decoded_frames(files, result.stderr, start, end, engine if engine != "scene" else "scene-change")
+    if engine == "scene" and frames:
+        frames[0]["reason"] = "first-frame"
+    return frames, count
 
-    output_pattern = str(out_dir / "frame_%04d.jpg")
-    cmd: list[str] = [
-        "ffmpeg", "-nostdin", "-protocol_whitelist", "file,pipe",
-        "-hide_banner",
-        "-loglevel", "info",
-        "-y",
-    ]
-    if start_seconds is not None:
-        cmd += ["-ss", f"{start_seconds:.3f}"]
-    vf = f"select='eq(n\\,0)+gt(scene\\,{threshold})',{_scale_filter(resolution)},showinfo"
-    cmd += [
-        "-i", str(Path(video_path).resolve()),
-        "-vf", vf,
-        "-fps_mode", "vfr",
-    ]
-    if end_seconds is not None:
-        cmd += ["-t", f"{end_seconds - (start_seconds or 0.0):.6f}"]
-    if max_frames is not None:
-        cmd += ["-frames:v", str(max_frames)]
-    cmd += [
-        "-q:v", "4",
-        output_pattern,
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise SystemExit(f"ffmpeg scene extraction failed: {result.stderr.strip()}")
 
-    frames = sorted(out_dir.glob("frame_*.jpg"))
-    out = _decoded_frames(frames, result.stderr, start_seconds, end_seconds, "scene-change")
-    if out:
-        out[0]["reason"] = "first-frame"
-    return out
+def extract(video_path: str, out_dir: Path, fps: float, resolution: int = 512,
+            max_frames: int = 100, start_seconds: float | None = None,
+            end_seconds: float | None = None) -> list[dict]:
+    """Choose actual frames near evenly spaced times, including both range ends.
+
+    A one-frame budget uses the first available frame. FPS determines the desired
+    sample count; the cap can reduce that count, without losing the range tail.
+    """
+    frames, _ = _select_candidates(video_path, out_dir, resolution, max_frames,
+                                   start_seconds, end_seconds, "uniform", fps=fps)
+    return frames
+
+
+def extract_scene_candidates(video_path: str, out_dir: Path, resolution: int = 512,
+                             max_frames: int | None = 100,
+                             start_seconds: float | None = None,
+                             end_seconds: float | None = None,
+                             threshold: float = SCENE_THRESHOLD) -> list[dict]:
+    frames, _ = _select_candidates(video_path, out_dir, resolution, max_frames,
+                                   start_seconds, end_seconds, "scene", threshold)
+    return frames
 
 
 def _even_indices(count: int, n: int) -> list[int]:
@@ -390,28 +408,6 @@ def extract_at_timestamps(
     return out, meta
 
 
-def _even_sample(candidates: list[dict], n: int) -> list[dict]:
-    """Pick ``n`` evenly-spaced candidates (always including first and last),
-    delete the JPEGs we drop, and reindex the survivors 0..len-1.
-
-    Shared by every capped engine so all detail modes sample the same way:
-    detect all candidates across the full range, then thin down to the cap.
-    ``n >= len(candidates)`` keeps everything (the uncapped / under-cap case).
-    """
-    selected = [candidates[i] for i in _even_indices(len(candidates), n)]
-
-    keep_paths = {sel["path"] for sel in selected}
-    for cand in candidates:
-        if cand["path"] not in keep_paths:
-            try:
-                Path(cand["path"]).unlink()
-            except OSError:
-                pass
-    for i, frame in enumerate(selected):
-        frame["index"] = i
-    return selected
-
-
 def _frame_delta(a: bytes, b: bytes) -> float:
     """Mean absolute per-pixel difference (0-255) between two grayscale
     thumbnails. Mismatched lengths are treated as maximally different so a
@@ -465,8 +461,9 @@ def dedupe_perceptual(
 ) -> tuple[list[dict], int]:
     """Drop near-identical frames from a chronological candidate list.
 
-    Thumbnails the extracted JPEGs and greedily removes frames whose mean
-    per-pixel difference from the last kept one is within ``threshold``. Returns
+    Thumbnails the extracted JPEGs and greedily removes interior frames whose
+    mean per-pixel difference from the last kept one is within ``threshold``.
+    The first and last frames preserve coverage even in static clips. Returns
     ``(survivors, dropped_count)``; a no-op (unchanged list) when thumbnails are
     unavailable or there are fewer than two candidates.
     """
@@ -480,8 +477,8 @@ def _dedupe_by_deltas(
     candidates: list[dict], thumbs: list[bytes], threshold: float = DEDUP_THRESHOLD
 ) -> tuple[list[dict], int]:
     """Greedily drop frames within ``threshold`` mean per-pixel difference of the
-    last *kept* frame. Deletes dropped JPEGs and reindexes survivors 0..n-1 (same
-    cleanup contract as :func:`_even_sample`). Fail-open: if ``thumbs`` does not
+    last *kept* frame, preserving the first and last. Deletes dropped JPEGs and
+    reindexes survivors 0..n-1. Fail-open: if ``thumbs`` does not
     line up 1:1 with ``candidates``, return them unchanged.
     """
     if len(thumbs) != len(candidates) or len(candidates) <= 1:
@@ -490,8 +487,8 @@ def _dedupe_by_deltas(
     kept = [candidates[0]]
     last = thumbs[0]
     dropped: list[dict] = []
-    for cand, thumb in zip(candidates[1:], thumbs[1:]):
-        if _frame_delta(thumb, last) <= threshold:
+    for index, (cand, thumb) in enumerate(zip(candidates[1:], thumbs[1:]), 1):
+        if index != len(candidates) - 1 and _frame_delta(thumb, last) <= threshold:
             dropped.append(cand)
         else:
             kept.append(cand)
@@ -507,168 +504,40 @@ def _dedupe_by_deltas(
     return kept, len(dropped)
 
 
-def extract_scene_or_uniform(
-    video_path: str,
-    out_dir: Path,
-    fps: float,
-    target_frames: int,
-    resolution: int = 512,
-    max_frames: int | None = 100,
-    start_seconds: float | None = None,
-    end_seconds: float | None = None,
-    dedup: bool = True,
-) -> tuple[list[dict], dict]:
-    """Prefer scene selection, falling back to uniform only when the video is
-    effectively static (fewer than ``SCENE_MIN_FRAMES`` detected shots).
-
-    Scene cuts are detected across the *whole* range (uncapped), near-identical
-    frames are dropped (:func:`dedupe_perceptual`, unless ``dedup`` is False),
-    and the survivors are even-sampled down to ``max_frames`` via
-    :func:`_even_sample`, exactly like the keyframe engine. This costs a full
-    decode, but it guarantees coverage spans the entire clip — capping detection
-    with ``-frames:v`` instead would keep only the first ``max_frames`` cuts and
-    drop the tail of long videos (and could even fall below ``SCENE_MIN_FRAMES``
-    and misfire the uniform fallback on a cut-heavy clip).
-    """
-    scene_frames = extract_scene_candidates(
-        video_path,
-        out_dir,
-        resolution=resolution,
-        max_frames=None,
-        start_seconds=start_seconds,
-        end_seconds=end_seconds,
-    )
-    scene_count = len(scene_frames)
-    if scene_count >= SCENE_MIN_FRAMES:
-        deduped, n_dropped = dedupe_perceptual(scene_frames) if dedup else (scene_frames, 0)
-        cap = len(deduped) if max_frames is None else max_frames
-        selected = _even_sample(deduped, cap)
-        return selected, {
-            "engine": "scene",
-            "candidate_count": scene_count,
-            "deduped_count": n_dropped,
-            "selected_count": len(selected),
-            "fallback": False,
-        }
-
-    fallback_cap = target_frames if max_frames is None else min(max_frames, target_frames)
-    frames = extract(
-        video_path,
-        out_dir,
-        fps=fps,
-        resolution=resolution,
-        max_frames=fallback_cap,
-        start_seconds=start_seconds,
-        end_seconds=end_seconds,
-    )
-    n_dropped = 0
-    if dedup:
-        frames, n_dropped = dedupe_perceptual(frames)
-    return frames, {
-        "engine": "uniform",
-        "candidate_count": scene_count,
-        "deduped_count": n_dropped,
-        "selected_count": len(frames),
-        "fallback": True,
-    }
+def extract_scene_or_uniform(video_path: str, out_dir: Path, fps: float,
+                             target_frames: int, resolution: int = 512,
+                             max_frames: int | None = 100,
+                             start_seconds: float | None = None,
+                             end_seconds: float | None = None,
+                             dedup: bool = True) -> tuple[list[dict], dict]:
+    frames, count = _select_candidates(video_path, out_dir, resolution, max_frames,
+                                       start_seconds, end_seconds, "scene")
+    fallback = count < SCENE_MIN_FRAMES
+    if fallback:
+        cap = target_frames if max_frames is None else min(max_frames, target_frames)
+        frames = extract(video_path, out_dir, fps, resolution, cap, start_seconds, end_seconds)
+    frames, dropped = dedupe_perceptual(frames) if dedup else (frames, 0)
+    return frames, {"engine": "uniform" if fallback else "scene", "candidate_count": count,
+                    "deduped_count": dropped, "selected_count": len(frames), "fallback": fallback}
 
 
-def extract_keyframes(
-    video_path: str,
-    out_dir: Path,
-    resolution: int = 512,
-    max_frames: int | None = 50,
-    start_seconds: float | None = None,
-    end_seconds: float | None = None,
-    dedup: bool = True,
-) -> tuple[list[dict], dict]:
-    """Decode only keyframes (I-frames) — the cheap, near-instant tier.
-
-    ``-skip_frame nokey`` makes ffmpeg reconstruct only keyframes, skipping all
-    P/B frames. Encoders emit keyframes at scene cuts, so these already
-    approximate "distinct moments". Near-identical frames are dropped
-    (:func:`dedupe_perceptual`, unless ``dedup`` is False); over-cap →
-    even-sample first→last; too few keyframes → uniform fallback.
-    """
-    if shutil.which("ffmpeg") is None:
-        raise SystemExit("ffmpeg is not installed. See SKILL.md for dependency setup")
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for existing in out_dir.glob("frame_*.jpg"):
-        existing.unlink()
-
-    output_pattern = str(out_dir / "frame_%04d.jpg")
-    cmd: list[str] = [
-        "ffmpeg", "-nostdin", "-protocol_whitelist", "file,pipe",
-        "-hide_banner",
-        "-loglevel", "info",
-        "-y",
-    ]
-    if start_seconds is not None:
-        cmd += ["-ss", f"{start_seconds:.3f}"]
-    cmd += [
-        "-skip_frame", "nokey",
-        "-i", str(Path(video_path).resolve()),
-        "-vf", f"{_scale_filter(resolution)},showinfo",
-        "-fps_mode", "vfr",
-    ]
-    if end_seconds is not None:
-        cmd += ["-t", f"{end_seconds - (start_seconds or 0.0):.6f}"]
-    cmd += [
-        "-q:v", "4",
-        output_pattern,
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise SystemExit(f"ffmpeg keyframe extraction failed: {result.stderr.strip()}")
-
-    files = sorted(out_dir.glob("frame_*.jpg"))
-    candidates = _decoded_frames(files, result.stderr, start_seconds, end_seconds, "keyframe")
-
-    # Too few keyframes → uniform fallback over the same range.
-    if len(candidates) < KEYFRAME_MIN:
-        for cand in candidates:
-            try:
-                Path(cand["path"]).unlink()
-            except OSError:
-                pass
-        meta = get_metadata(video_path)
-        full_duration = meta["duration_seconds"]
-        eff_start = start_seconds or 0.0
-        eff_end = end_seconds if end_seconds is not None else full_duration
-        eff_duration = max(0.0, eff_end - eff_start)
-        budget = max_frames if max_frames is not None else 100
-        fps, _ = auto_fps(eff_duration, max_frames=budget)
-        frames_out = extract(
-            video_path,
-            out_dir,
-            fps=fps,
-            resolution=resolution,
-            max_frames=budget,
-            start_seconds=start_seconds,
-            end_seconds=end_seconds,
-        )
-        n_dropped = 0
-        if dedup:
-            frames_out, n_dropped = dedupe_perceptual(frames_out)
-        return frames_out, {
-            "engine": "uniform",
-            "candidate_count": len(candidates),
-            "deduped_count": n_dropped,
-            "selected_count": len(frames_out),
-            "fallback": True,
-        }
-
-    # Detect-all, drop near-duplicates, then even-sample down to the cap (first +
-    # last always kept). ``max_frames is None`` (uncapped) keeps every keyframe.
-    candidate_count = len(candidates)
-    deduped, n_dropped = dedupe_perceptual(candidates) if dedup else (candidates, 0)
-    cap = len(deduped) if max_frames is None else max_frames
-    selected = _even_sample(deduped, cap)
-    return selected, {
-        "engine": "keyframe",
-        "candidate_count": candidate_count,
-        "deduped_count": n_dropped,
-        "selected_count": len(selected),
-        "fallback": False,
-    }
+def extract_keyframes(video_path: str, out_dir: Path, resolution: int = 512,
+                      max_frames: int | None = 50,
+                      start_seconds: float | None = None,
+                      end_seconds: float | None = None,
+                      dedup: bool = True, fps: float | None = None,
+                      target_frames: int | None = None) -> tuple[list[dict], dict]:
+    frames, count = _select_candidates(video_path, out_dir, resolution, max_frames,
+                                       start_seconds, end_seconds, "keyframe")
+    fallback = count < KEYFRAME_MIN
+    if fallback:
+        cap = max_frames if max_frames is not None else (target_frames or 100)
+        if fps is None:
+            duration = (end_seconds if end_seconds is not None else get_metadata(video_path)["duration_seconds"]) - (start_seconds or 0.0)
+            fps_fn = auto_fps_focus if start_seconds is not None or end_seconds is not None else auto_fps
+            fps, target_frames = fps_fn(duration, cap)
+        cap = min(cap, target_frames) if target_frames is not None else cap
+        frames = extract(video_path, out_dir, fps, resolution, cap, start_seconds, end_seconds)
+    frames, dropped = dedupe_perceptual(frames) if dedup else (frames, 0)
+    return frames, {"engine": "uniform" if fallback else "keyframe", "candidate_count": count,
+                    "deduped_count": dropped, "selected_count": len(frames), "fallback": fallback}

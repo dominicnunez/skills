@@ -178,7 +178,7 @@ class MediaTests(unittest.TestCase):
         pattern = "color=c=black:size=320x180:rate=10:duration=10,drawbox=color=white:x=0:y=0:w=iw:h=ih:t=fill:enable='lt(mod(t,0.4),0.2)'"
         subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
                         "-f", "lavfi", "-i", pattern, "-f", "lavfi", "-i", "sine=frequency=440:duration=10",
-                        "-c:v", "libx264", "-g", "10", "-sc_threshold", "0", "-c:a", "aac",
+                        "-c:v", "mpeg4", "-g", "10", "-c:a", "aac",
                         "-shortest", str(cls.media)], check=True, capture_output=True, timeout=30)
         cls.captions = cls.root / "captions.vtt"
         cls.captions.write_text("WEBVTT\n\n00:00.000 --> 00:01.000\nExcluded opening\n\n"
@@ -217,19 +217,88 @@ class MediaTests(unittest.TestCase):
         # A static clip forces the public balanced workflow's uniform fallback.
         static = self.root / "static.mp4"
         subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
-                        "-i", "color=c=blue:size=320x180:rate=10:duration=10", "-c:v", "libx264",
+                        "-i", "color=c=blue:size=320x180:rate=10:duration=10", "-c:v", "mpeg4",
                         str(static)], check=True, capture_output=True, timeout=30)
-        output = self.root / "uniform"
-        result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "watch.py"), str(static),
-                                 "--subtitles", str(self.captions), "--start", "1.3", "--end", "8.7",
-                                 "--fps", "2", "--max-frames", "3", "--no-dedup", "--out-dir", str(output)],
-                                capture_output=True, text=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        data = json.loads(next(output.glob("watch-*/manifest.json")).read_text(encoding="utf-8"))
-        self.assertEqual(len(data["frames"]), 3)
-        self.assertTrue(all(f["reason"] == "uniform" for f in data["frames"]))
-        self.assertTrue(all(1.3 <= f["timestamp_seconds"] <= 8.7 for f in data["frames"]))
-        self.assertGreater(data["frames"][-1]["timestamp_seconds"], 6.0)
+        for dedup, expected in ((False, 3), (True, 2)):
+            with self.subTest(dedup=dedup):
+                output = self.root / f"uniform-{dedup}"
+                args = [sys.executable, "-B", str(SCRIPTS / "watch.py"), str(static),
+                        "--subtitles", str(self.captions), "--start", "1.3", "--end", "8.7",
+                        "--fps", "2", "--max-frames", "3", "--out-dir", str(output)]
+                if not dedup:
+                    args += ["--no-dedup"]
+                result = subprocess.run(args, capture_output=True, text=True,
+                                        env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                data = json.loads(next(output.glob("watch-*/manifest.json")).read_text(encoding="utf-8"))
+                self.assertEqual(len(data["frames"]), expected)
+                self.assertTrue(all(f["reason"] == "uniform" for f in data["frames"]))
+                self.assertTrue(all(1.3 <= f["timestamp_seconds"] <= 8.7 for f in data["frames"]))
+                self.assertAlmostEqual(data["frames"][0]["timestamp_seconds"], 1.3, delta=0.001)
+                self.assertGreater(data["frames"][-1]["timestamp_seconds"], 8.5)
+
+    def test_capped_modes_bound_images_during_complete_operation(self):
+        real_run = subprocess.run
+        for mode in ("balanced", "efficient"):
+            for cap in (3, 7):
+                with self.subTest(mode=mode, cap=cap):
+                    output = self.root / f"bounded-{mode}-{cap}"
+                    observed_counts = []
+                    def observe_process(command, **kwargs):
+                        result = real_run(command, **kwargs)
+                        observed_counts.append(len(list(output.glob("watch-*/frames/*.jpg"))))
+                        return result
+                    with patch("subprocess.run", side_effect=observe_process):
+                        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                            result = watch.main([str(self.media), "--detail", mode, "--max-frames", str(cap),
+                                                 "--subtitles", str(self.captions), "--no-dedup", "--out-dir", str(output)])
+                    self.assertEqual(result, 0)
+                    self.assertLessEqual(max(observed_counts), cap)
+                    data = json.loads(next(output.glob("watch-*/manifest.json")).read_text())
+                    self.assertGreater(data["frames"][-1]["timestamp_seconds"], 8.5)
+
+    def test_efficient_fallback_keeps_requested_fps(self):
+        sparse = self.root / "sparse.mp4"
+        subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+                        "-i", "color=c=blue:size=320x180:rate=10:duration=10", "-c:v", "mpeg4", "-g", "1000",
+                        str(sparse)], check=True, capture_output=True, timeout=30)
+        for fps, expected in (("0.01", 1), ("1", 10)):
+            with self.subTest(fps=fps):
+                output = self.root / f"sparse-{fps}"
+                result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "watch.py"), str(sparse),
+                                         "--subtitles", str(self.captions), "--detail", "efficient", "--fps", fps,
+                                         "--max-frames", "20", "--no-dedup", "--out-dir", str(output)], capture_output=True,
+                                        text=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                data = json.loads(next(output.glob("watch-*/manifest.json")).read_text(encoding="utf-8"))
+                self.assertEqual(len(data["frames"]), expected)
+                self.assertTrue(all(f["reason"] == "uniform" for f in data["frames"]))
+                if expected > 1:
+                    self.assertGreater(data["frames"][-1]["timestamp_seconds"], 9.8)
+
+    def test_cue_frames_reserve_budget_during_complete_operation(self):
+        real_run = subprocess.run
+        for mode in ("balanced", "efficient"):
+            with self.subTest(mode=mode):
+                output = self.root / f"reserved-{mode}"
+                counts = []
+                def observe_process(command, **kwargs):
+                    result = real_run(command, **kwargs)
+                    counts.append(len(list(output.glob("watch-*/frames/*.jpg"))))
+                    return result
+                with patch("subprocess.run", side_effect=observe_process):
+                    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                        result = watch.main([str(self.media), "--detail", mode, "--max-frames", "3",
+                                             "--timestamps", "2.04,7.04", "--subtitles", str(self.captions),
+                                             "--no-dedup", "--out-dir", str(output)])
+                self.assertEqual(result, 0)
+                self.assertLessEqual(max(counts), 3)
+                data = json.loads(next(output.glob("watch-*/manifest.json")).read_text())
+                self.assertEqual(data["warnings"], [])
+                self.assertEqual(len(data["frames"]), 3)
+                pinned = [frame for frame in data["frames"] if frame["reason"] == "transcript-cue"]
+                self.assertEqual([frame["requested_seconds"] for frame in pinned], [2.04, 7.04])
+                self.assertEqual([frame["timestamp_seconds"] for frame in pinned], [2.1, 7.1])
 
     def test_cue_uses_decoded_source_time_and_cannot_cross_end(self):
         for label, end in (("cue-inside", "8.7"), ("cue-outside", "2.05")):

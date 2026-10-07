@@ -186,7 +186,7 @@ def collect_frames(args, video_path, work, start, end, interval, cap, cues, meta
                            start_seconds=start, end_seconds=end, dedup=not args.no_dedup)
             try:
                 if args.detail == "efficient":
-                    frames, _ = extract_keyframes(video_path, work / "frames", **options)
+                    frames, _ = extract_keyframes(video_path, work / "frames", fps=fps, target_frames=target, **options)
                 else:
                     frames, _ = extract_scene_or_uniform(video_path, work / "frames", fps, target, **options)
             except (SystemExit, OSError, ValueError) as exc:

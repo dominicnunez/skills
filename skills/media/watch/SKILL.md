@@ -99,7 +99,7 @@ Options:
 | `--timestamps 2:17,2:30` | Request cue frames at source times, reserving their share of the cap; the manifest distinguishes the request from the decoded frame time |
 | `--max-frames 30` | Tighten the frame budget |
 | `--resolution 1024` | Increase width for small on-screen text; default 512; maximum 4096 |
-| `--fps 1` | Override uniform sampling; capped at 2 fps and reduced to span the interval within the frame budget |
+| `--fps 1` | Set desired uniform sample density, including either mode's fallback; capped at 2 fps and the frame budget |
 | `--sub-lang es` | Choose captions by yt-dlp language pattern; default `en.*`; availability/translation depends on the platform |
 | `--subtitles captions.vtt` | Use a supplied local WebVTT transcript instead of fetching captions |
 | `--extract-audio` | Save mono 16 kHz WAV from the selected interval; no upload or speech inference |
@@ -125,6 +125,14 @@ Exit 0 means at least one usable evidence stream exists; inspect the warnings
 before making claims. Exit 1 means no usable evidence was collected. Partial
 evidence remains on disk if video download or decoding fails. Captions outside
 the selected interval are reported separately from unavailable captions.
+
+Capped modes scan candidates without saving images, then decode the selected
+indices. This adds a decode pass to keep scratch images and selection memory
+within the requested cap. Uniform sampling with a budget of two or more covers
+the first and last available frames in the interval; a one-frame budget uses
+the first. Near-duplicate removal preserves those endpoints. Scene and keyframe
+sampling spread the budget across their candidates, so the last candidate can
+precede the end of the interval. The explicit `token-burner` mode is uncapped.
 
 ## Analyze and write
 
@@ -160,4 +168,5 @@ use native PowerShell file operations.
 Source and license: [provenance.md](provenance.md), [LICENSE.txt](LICENSE.txt).
 Offline checks: `python -B -m unittest discover -s <skill-directory>/tests -v`.
 Native media regressions run when FFmpeg/ffprobe are on PATH; otherwise they
-are explicitly skipped. Tests synthesize local clips and do not contact YouTube.
+are explicitly skipped. Tests synthesize local clips with FFmpeg's built-in
+MPEG-4 and AAC encoders and do not contact YouTube.

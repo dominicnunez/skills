@@ -9,7 +9,7 @@ Original author: Bradley Bonanno (bradautomates). Adaptation: Dominic, 2026-10-0
 License for this derivative: MIT; see [LICENSE.txt](LICENSE.txt).
 This is a modified version; no upstream endorsement is implied.
 
-Changes: Codex-compatible video analysis and document guidance; retains the
+Changes: Codex-compatible video analysis and document guidance; adapts the
 upstream frame-selection and VTT parsing helpers. Replaces automatic installers,
 configuration/key lookup and cloud transcription with read-only preflight and
 optional local audio extraction. Isolates runs and download attempts; disables
@@ -17,6 +17,11 @@ yt-dlp configuration, plugins and remote components; limits remote inputs to
 HTTPS YouTube hosts and FFmpeg input protocols to local files/pipes. Requires
 successful final downloads, validates CLI budgets/ranges, spans uniform frame
 budgets across the interval and records range-checked decoded timestamps.
+Capped scene/keyframe selection counts candidates without JPEGs, then renders
+only selected indices with bounded selection memory. The extra decode pass
+trades CPU for bounded scratch storage. Uniform sampling preserves first/last
+coverage, honors explicit FPS in both fallbacks, and retains endpoints during
+deduplication. Native tests use built-in MPEG-4/AAC encoders.
 Uses current FFmpeg timing options; supports short and long WebVTT cue times
 and keeps audio extraction independent of frame failures. Cue frames retain
 their requested time separately from the decoded, range-checked source time.
