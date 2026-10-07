@@ -351,7 +351,7 @@ def extract_at_timestamps(
     """Grab exactly one frame at each requested timestamp (transcript cues).
 
     Timestamps are absolute source seconds. Any falling outside an active
-    ``[start, end]`` focus window are dropped. Files use a ``cue_*.jpg`` prefix
+    ``[start, end)`` focus window are dropped. Files use a ``cue_*.jpg`` prefix
     so they sit alongside detail-engine ``frame_*.jpg`` output without either
     clobbering the other. When more cues than ``max_frames`` survive, they are
     even-sampled (first + last kept) before extraction.
@@ -366,7 +366,7 @@ def extract_at_timestamps(
     lo = start_seconds or 0.0
     hi = end_seconds if end_seconds is not None else float("inf")
     requested = sorted(set(float(t) for t in timestamps))
-    in_window = [t for t in requested if lo <= t <= hi]
+    in_window = [t for t in requested if lo <= t < hi]
     dropped = len(requested) - len(in_window)
 
     if max_frames is not None and len(in_window) > max_frames:
@@ -399,10 +399,15 @@ def extract_at_timestamps(
 
     meta = {
         "engine": "timestamps",
+        "requested_seconds": requested,
+        "in_window_seconds": in_window,
+        "requested_in_budget_seconds": points,
+        "sampled_request_seconds": [frame["requested_seconds"] for frame in out],
         "candidate_count": len(requested),
         "selected_count": len(out),
         "dropped_out_of_window": dropped,
         "requested_in_budget": len(points),
+        "dropped_for_budget": len(in_window) - len(points),
         "fallback": False,
     }
     return out, meta

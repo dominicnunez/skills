@@ -33,8 +33,9 @@ This package adapts the local extraction workflow from claude-video v0.2.0.
 
 Use Python 3.10 or newer and install current **yt-dlp**, **ffmpeg** (5.1+) and
 **ffprobe** on PATH. The helpers use only Python's standard library.
-YouTube extraction also needs a supported JavaScript runtime and yt-dlp's EJS
-component. Deno is enabled by yt-dlp by default. The official yt-dlp executable
+YouTube extraction also needs **Deno 2.3+** on PATH and yt-dlp's EJS
+component. These helpers use yt-dlp's default Deno runtime and do not enable
+Node, QuickJS or Bun. The official yt-dlp executable
 bundles EJS; Python installs should use `yt-dlp[default]`.
 
 Install through the tools' normal package managers when setup is requested:
@@ -66,11 +67,12 @@ python (Join-Path $watchSkillDir 'scripts/setup.py') --json
 ```
 
 On macOS/Linux use `python3 "$watchSkillDir/scripts/setup.py" --json`.
-Preflight reports unsupported Python versions and missing executable paths;
+Preflight checks the full YouTube toolset, including Deno. It reports unsupported
+Python versions and missing executable paths;
 it never installs or changes configuration. JSON includes explicit `problems`,
 and `--check` is silent on success. Presence does not
-prove tool versions, EJS availability or network access. Missing tools need not
-block a sidecar-caption-only pass that does not use them.
+prove media/runtime versions, EJS availability or network access. A local media
+or sidecar-caption pass only needs the tools it actually uses.
 
 ## Collect the evidence
 
@@ -96,7 +98,7 @@ Options:
 | `--detail efficient` | Keyframes with uniform fallback; cap 50 |
 | `--detail balanced` | Scene changes with uniform fallback; cap 100; default |
 | `--detail token-burner` | Uncapped scene candidates; use only when the user needs that volume of images |
-| `--start 2:15 --end 2:45` | Focus evidence on a source interval; times accept seconds, MM:SS or HH:MM:SS |
+| `--start 2:15 --end 2:45` | Focus evidence on a half-open source interval [start, end); times accept seconds, MM:SS or HH:MM:SS |
 | `--timestamps 2:17,2:30` | Request cue frames at source times, reserving their share of the cap; the manifest distinguishes the request from the decoded frame time |
 | `--max-frames 30` | Tighten the frame budget |
 | `--resolution 1024` | Increase width for small on-screen text; default 512; maximum 4096 |
@@ -118,6 +120,8 @@ The script prints the absolute run directory and saves:
 - `report.md`: evidence index and limitations for the agent to read.
 - `manifest.json`: source metadata, selected range, frame paths and source
   timestamps, caption provenance path, transcript segments, audio path and warnings.
+  `cue_selection` retains all requested times and the sampling-attempt state;
+  completed cue selection reports window/budget omissions and sampled requests.
 - `transcript.txt`: timestamped speech from available captions.
 - `frames/`: selected JPEGs; `audio.wav` when requested and audio exists.
 - `download/`: downloaded metadata, captions and media in isolated fetch folders.
@@ -125,7 +129,12 @@ The script prints the absolute run directory and saves:
 Exit 0 means at least one usable evidence stream exists; inspect the warnings
 before making claims. Exit 1 means no usable evidence was collected. Partial
 evidence remains on disk if video download or decoding fails. Captions outside
-the selected interval are reported separately from unavailable captions.
+the selected interval are reported separately from unavailable captions. Cue
+requests omitted by the frame budget or range are explicit in the manifest and
+warnings. Captions must overlap the interval for positive duration; retained
+cues keep their original millisecond times and text, including partial overlap.
+Malformed/non-finite and non-positive cues are omitted. Only identical
+overlapping cues are merged; cumulative caption text keeps its own timing.
 
 Capped modes scan candidates without saving images, then decode the selected
 indices. This adds a decode pass to keep scratch images and selection memory

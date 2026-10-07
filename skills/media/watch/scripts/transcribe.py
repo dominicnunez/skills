@@ -6,6 +6,7 @@ scrolls). We dedupe consecutive identical cues and merge their time ranges.
 """
 from __future__ import annotations
 
+import math
 import re
 import sys
 from html import unescape
@@ -48,8 +49,8 @@ def parse_vtt(path: str) -> list[dict]:
             i += 1
 
         cue_text = " ".join(cue_lines).strip()
-        if cue_text and end > start:
-            segments.append({"start": round(start, 2), "end": round(end, 2), "text": cue_text})
+        if cue_text and math.isfinite(start) and math.isfinite(end) and end > start:
+            segments.append({"start": round(start, 3), "end": round(end, 3), "text": cue_text})
         i += 1
 
     return _dedupe(segments)
@@ -59,12 +60,10 @@ def _dedupe(segments: list[dict]) -> list[dict]:
     """Collapse rolling duplicates common in YouTube auto-subs."""
     out: list[dict] = []
     for seg in segments:
-        if out and seg["start"] <= out[-1]["end"] and seg["text"] == out[-1]["text"]:
-            out[-1]["end"] = seg["end"]
-            continue
-        if out and seg["start"] <= out[-1]["end"] and seg["text"].startswith(out[-1]["text"] + " "):
-            out[-1]["text"] = seg["text"]
-            out[-1]["end"] = seg["end"]
+        if (out and seg["text"] == out[-1]["text"] and seg["start"] < out[-1]["end"]
+                and seg["end"] > out[-1]["start"]):
+            out[-1]["start"] = min(out[-1]["start"], seg["start"])
+            out[-1]["end"] = max(out[-1]["end"], seg["end"])
             continue
         out.append(seg)
     return out
@@ -75,12 +74,14 @@ def filter_range(
     start_seconds: float | None,
     end_seconds: float | None,
 ) -> list[dict]:
-    """Return segments whose time range overlaps [start, end]."""
+    """Return positive-overlap segments for the half-open interval [start, end)."""
     if start_seconds is None and end_seconds is None:
         return segments
     lo = start_seconds if start_seconds is not None else float("-inf")
     hi = end_seconds if end_seconds is not None else float("inf")
-    return [seg for seg in segments if seg["end"] >= lo and seg["start"] <= hi]
+    if hi <= lo:
+        return []
+    return [seg for seg in segments if seg["end"] > lo and seg["start"] < hi]
 
 
 def format_transcript(segments: list[dict]) -> str:

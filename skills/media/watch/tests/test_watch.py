@@ -17,7 +17,7 @@ sys.path.insert(0, str(SCRIPTS))
 import download
 import setup as preflight
 import watch
-from transcribe import parse_vtt
+from transcribe import filter_range, parse_vtt
 
 
 class PreflightTests(unittest.TestCase):
@@ -63,6 +63,20 @@ class PreflightTests(unittest.TestCase):
                     self.assertFalse(data["can_proceed"])
                     output = "\n".join(data["problems"])
                 self.assertIn("ffmpeg", output)
+
+    def test_preflight_requires_the_enabled_youtube_runtime(self):
+        runtimes = {"deno", "node", "qjs", "bun"}
+        for present in (set(), {"node"}, {"qjs"}, {"bun"}, {"deno"}):
+            for option in ([], ["--check"], ["--json"]):
+                with self.subTest(present=present, option=option):
+                    result, output = self.invoke((3, 12, 0), runtimes - present, option)
+                    self.assertEqual(result, 0 if "deno" in present else 2)
+                    if "deno" not in present:
+                        if option == ["--json"]:
+                            data = json.loads(output)
+                            self.assertFalse(data["can_proceed"])
+                            output = "\n".join(data["problems"])
+                        self.assertIn("Deno", output)
 
 
 class DownloadTests(unittest.TestCase):
@@ -115,6 +129,109 @@ class WatchTests(unittest.TestCase):
     def invoke(self, *args):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             return watch.main([str(self.media), "--out-dir", str(self.output), *args])
+
+    def test_focused_captions_use_positive_half_open_overlap(self):
+        self.captions.write_text("WEBVTT\n\n00:01.000 --> 00:02.000\nTouches start\n\n"
+                                 "00:01.999 --> 00:02.001\nCrosses start\n\n"
+                                 "00:02.000 --> 00:04.000\nInside\n\n"
+                                 "00:03.999 --> 00:04.001\nCrosses end\n\n"
+                                 "00:04.000 --> 00:05.000\nTouches end\n", encoding="utf-8")
+        for options, expected in ((["--start", "2", "--end", "4"], ["Crosses start", "Inside", "Crosses end"]),
+                                  (["--start", "2"], ["Crosses start", "Inside", "Crosses end", "Touches end"]),
+                                  (["--end", "4"], ["Touches start", "Crosses start", "Inside", "Crosses end"])):
+            with self.subTest(options=options):
+                self.assertEqual(self.invoke("--detail", "transcript", "--subtitles", str(self.captions), *options), 0)
+                latest = max(self.output.glob("watch-*/manifest.json"), key=lambda path: path.stat().st_mtime_ns)
+                data = json.loads(latest.read_text())
+                self.assertEqual([segment["text"] for segment in data["transcript_segments"]], expected)
+                crossing = next(segment for segment in data["transcript_segments"] if segment["text"] == "Crosses start")
+                self.assertEqual((crossing["start"], crossing["end"]), (1.999, 2.001))
+
+    def test_nested_rolling_cues_preserve_the_full_evidence_interval(self):
+        for later in ("Repeated evidence", "Repeated evidence extended"):
+            with self.subTest(later=later):
+                self.captions.write_text("WEBVTT\n\n00:05.000 --> 00:09.000\nRepeated evidence\n\n"
+                                         f"00:06.000 --> 00:07.000\n{later}\n", encoding="utf-8")
+                self.assertEqual(self.invoke("--detail", "transcript", "--subtitles", str(self.captions),
+                                             "--start", "7.5", "--end", "8.5"), 0)
+                latest = max(self.output.glob("watch-*/manifest.json"), key=lambda path: path.stat().st_mtime_ns)
+                data = json.loads(latest.read_text())
+                self.assertEqual(data["transcript_segments"], [{"start": 5.0, "end": 9.0, "text": "Repeated evidence"}])
+        self.captions.write_text("WEBVTT\n\n00:05.000 --> 00:06.000\nRepeated evidence\n\n"
+                                 "00:06.000 --> 00:07.000\nRepeated evidence\n", encoding="utf-8")
+        self.assertEqual(self.invoke("--detail", "transcript", "--subtitles", str(self.captions),
+                                     "--start", "5", "--end", "7"), 0)
+        latest = max(self.output.glob("watch-*/manifest.json"), key=lambda path: path.stat().st_mtime_ns)
+        data = json.loads(latest.read_text())
+        self.assertEqual(data["transcript_segments"], [
+            {"start": 5.0, "end": 6.0, "text": "Repeated evidence"},
+            {"start": 6.0, "end": 7.0, "text": "Repeated evidence"},
+        ])
+
+    def test_cue_requests_survive_media_probe_failure(self):
+        with patch("watch.get_metadata", side_effect=SystemExit("probe failed")):
+            self.assertEqual(self.invoke("--timestamps", "2,3,4", "--subtitles", str(self.captions)), 0)
+        data = json.loads(next(self.output.glob("watch-*/manifest.json")).read_text())
+        self.assertEqual(data["cue_selection"]["requested_seconds"], [2.0, 3.0, 4.0])
+        self.assertFalse(data["cue_selection"]["sampling_attempted"])
+        self.assertEqual(data["range"], {"start": 0.0, "end": 8.0})
+        self.assertTrue(any("probe failed" in warning for warning in data["warnings"]))
+
+    def test_prefix_cues_preserve_their_own_start_time(self):
+        for end in (7, 9, 10):
+            with self.subTest(end=end):
+                self.captions.write_text("WEBVTT\n\n00:05.000 --> 00:09.000\nRepeated evidence\n\n"
+                                         f"00:06.000 --> 00:{end:02d}.000\nRepeated evidence extended\n", encoding="utf-8")
+                self.assertEqual(self.invoke("--detail", "transcript", "--subtitles", str(self.captions),
+                                             "--start", "5", "--end", "6"), 0)
+                latest = max(self.output.glob("watch-*/manifest.json"), key=lambda path: path.stat().st_mtime_ns)
+                data = json.loads(latest.read_text())
+                self.assertEqual(data["transcript_segments"], [
+                    {"start": 5.0, "end": 9.0, "text": "Repeated evidence"},
+                ])
+
+    def test_start_after_caption_coverage_has_valid_empty_range(self):
+        self.captions.write_text("WEBVTT\n\n00:05.000 --> 00:06.000\nEarlier evidence\n", encoding="utf-8")
+        for mode in ("transcript", "balanced"):
+            with self.subTest(mode=mode), patch("watch.get_metadata", side_effect=SystemExit("probe failed")):
+                self.assertEqual(self.invoke("--detail", mode, "--start", "10", "--subtitles", str(self.captions)), 1)
+                latest = max(self.output.glob("watch-*/manifest.json"), key=lambda path: path.stat().st_mtime_ns)
+                data = json.loads(latest.read_text())
+                self.assertEqual(data["range"], {"start": 10.0, "end": 10.0})
+                self.assertEqual(data["transcript_segments"], [])
+
+    def test_media_end_blocks_captions_and_decoders_past_eof(self):
+        self.captions.write_text("WEBVTT\n\n00:07.000 --> 00:12.000\nBeyond actual media\n", encoding="utf-8")
+        metadata = {"duration_seconds": 6, "width": 320, "height": 180, "has_audio": True}
+        for end in ([], ["--end", "20"]):
+            with self.subTest(end=end), patch("watch.get_metadata", return_value=metadata), patch("watch.subprocess.run") as run:
+                self.assertEqual(self.invoke("--start", "10", "--extract-audio", "--subtitles", str(self.captions), *end), 1)
+                run.assert_not_called()
+                latest = max(self.output.glob("watch-*/manifest.json"), key=lambda path: path.stat().st_mtime_ns)
+                data = json.loads(latest.read_text())
+                self.assertEqual(data["range"], {"start": 10.0, "end": 10.0})
+                self.assertEqual(data["transcript_segments"], [])
+                self.assertEqual(data["frames"], [])
+                self.assertIsNone(data["audio"])
+                self.assertTrue(any("past the end" in warning for warning in data["warnings"]))
+
+    def test_empty_caption_windows_have_no_overlap(self):
+        segments = [{"start": 0.0, "end": 20.0, "text": "Straddles point"}]
+        self.assertEqual(filter_range(segments, 10, 10), [])
+        self.assertEqual(filter_range(segments, 12, 10), [])
+
+    def test_invalid_caption_times_preserve_valid_later_evidence(self):
+        huge_hour = "9" * 310
+        self.captions.write_text(f"WEBVTT\n\n00:00.000 --> {huge_hour}:00:00.000\nInvalid infinite end\n\n"
+                                 "00:03.000 --> 00:02.000\nReversed\n\n"
+                                 "00:03.000 --> 00:03.000\nEmpty interval\n\n"
+                                 "00:05.000 --> 00:06.000\nValid later evidence\n", encoding="utf-8")
+        self.assertEqual(self.invoke("--detail", "transcript", "--subtitles", str(self.captions)), 0)
+        data = json.loads(next(self.output.glob("watch-*/manifest.json")).read_text())
+        self.assertEqual(data["transcript_segments"], [
+            {"start": 5.0, "end": 6.0, "text": "Valid later evidence"},
+        ])
+        self.assertEqual(data["range"], {"start": 0.0, "end": 6.0})
 
     def test_invalid_range_is_rejected_before_output_or_network(self):
         with patch("watch.fetch_captions") as fetch:
@@ -365,6 +482,31 @@ class MediaTests(unittest.TestCase):
                     self.assertEqual(data["frames"], [])
                     self.assertIn("Some requested cue frames could not be sampled within the requested range.",
                                   data["warnings"])
+
+    def test_capped_cue_coverage_reports_every_omitted_request(self):
+        for mode in ("transcript", "balanced", "efficient"):
+            for cap in (1, 2):
+                with self.subTest(mode=mode, cap=cap):
+                    output = self.root / f"cue-coverage-{mode}-{cap}"
+                    result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "watch.py"), str(self.media),
+                                             "--subtitles", str(self.captions), "--detail", mode,
+                                             "--start", "2", "--end", "8.7", "--max-frames", str(cap),
+                                             "--timestamps", "2,3,6,7,8.7,10", "--out-dir", str(output)],
+                                            capture_output=True, text=True,
+                                            env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    data = json.loads(next(output.glob("watch-*/manifest.json")).read_text())
+                    selection = data["cue_selection"]
+                    self.assertTrue(selection["sampling_attempted"])
+                    self.assertEqual(selection["requested_seconds"], [2, 3, 6, 7, 8.7, 10])
+                    self.assertEqual(selection["in_window_seconds"], [2, 3, 6, 7])
+                    self.assertEqual(selection["dropped_out_of_window"], 2)
+                    self.assertEqual(selection["dropped_for_budget"], 4 - cap)
+                    self.assertEqual(selection["selected_count"], cap)
+                    self.assertEqual(selection["sampled_request_seconds"], [2] if cap == 1 else [2, 7])
+                    self.assertEqual(len(data["frames"]), cap)
+                    self.assertTrue(any("frame budget" in warning for warning in data["warnings"]))
+                    self.assertTrue(any("outside the requested range" in warning for warning in data["warnings"]))
 
 
 if __name__ == "__main__":

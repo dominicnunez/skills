@@ -85,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     video_path = None
     meta = {"duration_seconds": float(evidence.get("info", {}).get("duration") or 0)}
     frames: list[dict] = []
+    cue_selection = {"requested_seconds": cues, "sampling_attempted": False}
     audio_path = None
     try:
         if need_frames or args.extract_audio:
@@ -100,16 +101,17 @@ def main(argv: list[str] | None = None) -> int:
             meta = get_metadata(video_path)
         duration = float(meta["duration_seconds"])
         if duration > 0:
-            if start >= duration:
-                raise SystemExit("--start is past the end of the media")
             end = min(end, duration) if end is not None else duration
+            if start >= duration:
+                end = start
+                raise SystemExit("--start is past the end of the media")
         elif end is None:
-            end = max((s["end"] for s in segments), default=start)
+            end = max(start, max((s["end"] for s in segments), default=start))
         interval = end - start
         if video_path and (not math.isfinite(interval) or interval <= 0):
             raise SystemExit("Media has no finite positive duration in the requested range")
         try:
-            frames = collect_frames(args, video_path, work, start, end, interval, cap, cues, meta, warnings) if need_frames and video_path else []
+            frames = collect_frames(args, video_path, work, start, end, interval, cap, cues, meta, warnings, cue_selection) if need_frames and video_path else []
         except (SystemExit, OSError, ValueError) as exc:
             warnings.append(f"Frame extraction failed: {exc}")
         if args.extract_audio and video_path:
@@ -128,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
     except (SystemExit, OSError, ValueError) as exc:
         warnings.append(f"Media extraction failed: {exc}")
 
+    if end is None:
+        end = max(start, max((segment["end"] for segment in segments), default=start))
     selected_segments = filter_range(segments, start, end)
     transcript = format_transcript(selected_segments)
     if not segments:
@@ -142,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         "source": args.source, "info": evidence.get("info", {}), "metadata": meta,
         "range": {"start": start, "end": end}, "detail": args.detail,
         "frames": frames, "captions": str(Path(caption_path).resolve()) if caption_path else None,
+        "cue_selection": cue_selection,
         "transcript": str(transcript_path), "transcript_segments": selected_segments,
         "audio": str(audio_path) if audio_path else None, "warnings": warnings,
     }
@@ -163,16 +168,20 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if frames or selected_segments or audio_path else 1
 
 
-def collect_frames(args, video_path, work, start, end, interval, cap, cues, meta, warnings):
+def collect_frames(args, video_path, work, start, end, interval, cap, cues, meta, warnings, cue_selection):
     frames = []
     if not meta.get("width"):
         warnings.append("Media has no video stream; no frames available.")
     else:
+        cue_selection["sampling_attempted"] = bool(cues)
         pinned, cue_meta = extract_at_timestamps(
             video_path, work / "frames", cues, args.resolution, cap, start, end,
         ) if cues else ([], {})
+        cue_selection.update(cue_meta)
         if cue_meta.get("dropped_out_of_window"):
             warnings.append("Some cue timestamps were outside the requested range.")
+        if cue_meta.get("dropped_for_budget"):
+            warnings.append(f"{cue_meta['dropped_for_budget']} in-range cue timestamps were omitted by the frame budget (cap {cap}).")
         if cue_meta.get("selected_count", 0) < cue_meta.get("requested_in_budget", 0):
             warnings.append("Some requested cue frames could not be sampled within the requested range.")
         remaining = None if cap is None else cap - len(pinned)

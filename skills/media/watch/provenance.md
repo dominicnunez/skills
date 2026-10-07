@@ -13,7 +13,8 @@ Changes: Codex-compatible video analysis and document guidance; adapts the
 upstream frame-selection and VTT parsing helpers. Replaces automatic installers,
 configuration/key lookup and cloud transcription with read-only preflight and
 optional local audio extraction. Preflight reports unsupported Python and
-missing executables in text/JSON/check modes. Isolates runs and download attempts; disables
+missing executables in text/JSON/check modes, including the enabled Deno runtime.
+Isolates runs and download attempts; disables
 yt-dlp configuration, plugins and remote components; limits remote inputs to
 HTTPS YouTube hosts and FFmpeg input protocols to local files/pipes. Requires
 successful final downloads, validates CLI budgets/ranges, spans uniform frame
@@ -26,6 +27,10 @@ deduplication. Native tests use built-in MPEG-4/AAC encoders.
 Uses current FFmpeg timing options; supports short and long WebVTT cue times
 and keeps audio extraction independent of frame failures. Cue frames retain
 their requested time separately from the decoded, range-checked source time.
+Range selection uses half-open boundaries for captions/cues, preserves caption
+millisecond precision, finite positive cue intervals and identical rolling-cue
+unions without moving added words earlier, and records all cue requests
+with explicit range/budget omissions and sampling state, including media failure.
 Adds saved evidence reports/manifests, supplied-caption support, caption-language
 selection, partial-evidence preservation and offline contract tests.
 

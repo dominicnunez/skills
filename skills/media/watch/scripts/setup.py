@@ -21,11 +21,13 @@ def main() -> int:
         problems.append(f"Python 3.10 or newer is required (found {python_version})")
     if missing:
         problems.append("Missing executables: " + ", ".join(missing))
+    if not runtimes["deno"]:
+        problems.append("Deno is required on PATH for YouTube; other detected runtimes are not enabled")
     status = {"python": python_version, "binaries": binaries,
               "missing_binaries": missing, "js_runtimes": runtimes,
               "problems": problems, "can_proceed": not problems,
               "notes": ["YouTube requires a current yt-dlp distribution with EJS and a supported JS runtime.",
-                        "Only Deno is enabled by yt-dlp by default; see SKILL.md for setup.",
+                        "This helper uses yt-dlp's default Deno runtime; see SKILL.md for setup.",
                         "Media-tool checks use presence only, not versions, EJS availability, or network access."]}
     if args.json:
         print(json.dumps(status, indent=2))
