@@ -317,7 +317,8 @@ class MediaTests(unittest.TestCase):
                     self.assertEqual(data["frames"][0]["requested_seconds"], 2.04)
                 else:
                     self.assertEqual(data["frames"], [])
-                    self.assertTrue(any("cue frames" in w for w in data["warnings"]))
+                    self.assertIn("Some requested cue frames could not be sampled within the requested range.",
+                                  data["warnings"])
 
 
 if __name__ == "__main__":

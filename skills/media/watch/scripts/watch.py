@@ -174,7 +174,7 @@ def collect_frames(args, video_path, work, start, end, interval, cap, cues, meta
         if cue_meta.get("dropped_out_of_window"):
             warnings.append("Some cue timestamps were outside the requested range.")
         if cue_meta.get("selected_count", 0) < cue_meta.get("requested_in_budget", 0):
-            warnings.append("Some requested cue frames could not be decoded.")
+            warnings.append("Some requested cue frames could not be sampled within the requested range.")
         remaining = None if cap is None else cap - len(pinned)
         if args.detail != "transcript" and remaining != 0:
             fps_fn = auto_fps_focus if args.start or args.end else auto_fps
