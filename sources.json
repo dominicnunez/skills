@@ -64,5 +64,25 @@
     "upstream_skill_sha256": "7b3dae1ffc5434d890f3c65c8f552af52d0307fab3b35dec13013c9ca3844c4f",
     "adaptations": "Preserves existing authorization, threat-model format, and independent review policy. Replaces broad copied security handbooks with focused Go/browser guidance checked against official Go, WHATWG, and W3C sources. Corrects process execution, HTTP defaults, CORS, event handlers, CSP, opaque-origin messaging, and mandatory-tool overreach.",
     "package_path": "skills/engineering/security-best-practices"
+  },
+  {
+    "name": "watch",
+    "repository": "bradautomates/claude-video",
+    "revision": "83da59fa78c3eee9e20f515fe75c438bb5166efd",
+    "path": "skills/watch",
+    "source_url": "https://github.com/bradautomates/claude-video/tree/83da59fa78c3eee9e20f515fe75c438bb5166efd/skills/watch",
+    "license": "MIT",
+    "upstream_skill_sha256": "10dc8e56699e99a97f9b29c25881a3b3d94873d42ee6a2b6a84fef4ead6927b2",
+    "upstream_files_sha256": {
+      "LICENSE": "add78957ea8124a8ae6eccd7a55c948543a9f32ea26917bf562b8cafacb01d3e",
+      "scripts/config.py": "a672f1b3b888ee90b696a2acd7ccba46556eeb7978be4a0cf205e0a7963e5140",
+      "scripts/download.py": "e3db8c8418a0372a533fedaf6c4481c5859849c81279e0f6cb139e4055081f91",
+      "scripts/frames.py": "ad317574facd619ff0c5ccbbb86a08b76abc8419c81107d179dbe2a3ba526ae6",
+      "scripts/transcribe.py": "f9736e126d3f3c41d72cceed75e50b7bdeb0f8a9bdafe5bdbdd8592ea8af7ab6",
+      "scripts/watch.py": "22a617de949781067ba22d90b64355231cf09c92b3a144ee9c3a5e26f0062e3a",
+      "SKILL.md": "10dc8e56699e99a97f9b29c25881a3b3d94873d42ee6a2b6a84fef4ead6927b2"
+    },
+    "adaptations": "Codex-compatible video analysis and document guidance; retains frame-selection and adapts VTT parsing for short/long cues. Read-only preflight, optional local audio extraction independent of frame failures, no installers/configuration keys/cloud uploads. Isolated runs/fetches; HTTPS YouTube hosts; yt-dlp config/plugins/remote components disabled; FFmpeg local input protocols and current timing options. Successful final downloads, validated budgets/ranges, uniform coverage and range-checked decoded timestamps. Saved reports/manifests, sidecar captions, language selection, partial evidence and offline/native tests.",
+    "package_path": "skills/media/watch"
   }
 ]

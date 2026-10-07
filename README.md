@@ -15,6 +15,16 @@ adaptations, not official releases or endorsements by their upstream authors.
 | security-best-practices | Authorized secure coding and security reviews |
 | verification-before-completion | Matching completion claims to verified evidence |
 
+## Media
+
+| Skill | Use it for |
+| --- | --- |
+| [watch](skills/media/watch/SKILL.md) | YouTube/local video questions, timestamped summaries and documents from captions and FFmpeg frames/audio |
+
+Watch includes standard-library Python helpers; install yt-dlp, FFmpeg/ffprobe,
+and the YouTube JS runtime/EJS dependencies described in its SKILL.md separately.
+Its preflight does not install software and its scripts do not upload audio.
+
 Repository instructions and the user's authorization remain authoritative.
 Skills do not replace required PR reviews, authorize external actions, or grant
 permission to spend money. Load only skills relevant to the current work.
