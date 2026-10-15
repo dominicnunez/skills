@@ -13,6 +13,10 @@ For each substantive claim, identify its evidence and practical limits.
   invalidate the evidence. Do not rerun checks merely to accompany a message.
 - A focused test supports the behavior it exercises. A linter does not prove a
   build, and a passing package does not prove all requirements or failure paths.
+  For tool integrations, verify non-obvious options and settings at the owning
+  operation of the pinned real tool, using a permitted fixture. A mock accepting
+  those inputs, or a settings readback in another mode or directory, does not
+  prove enforcement. Report the gap if that operation cannot be exercised.
 - For a defect regression, confirm the original symptom fails before the fix and
   passes after it where feasible. Use an isolated checkout or equivalent method
   that preserves user changes.
