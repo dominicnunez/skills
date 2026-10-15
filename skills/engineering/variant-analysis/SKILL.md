@@ -17,6 +17,10 @@ description: Use after a confirmed defect to find other occurrences of the same 
    causes and their scopes; a guard for an authority change may not observe
    runtime shutdown. Include admission after a handler returns and the outer
    runtime/transport ordering that invokes the helper under review.
+   When setup or repair skips existing state, distinguish externally owned
+   resources from managed resources that still need updates. Trace a successful
+   first run into later reconciliation and check that maintenance remains
+   reachable without adopting unrelated state.
    For repeated-work defects, also trace complete operations, nested calls,
    repeated requests and concurrent callers. Cover reachable readers as well as
    writers. One call per transaction is not an exclusion when every poll starts

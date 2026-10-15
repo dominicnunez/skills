@@ -51,7 +51,7 @@
     "source_url": "https://github.com/trailofbits/skills/tree/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/variant-analysis/skills/variant-analysis",
     "license": "CC-BY-SA-4.0",
     "upstream_skill_sha256": "7b6b78e499bcb88d05c68254ffc91ebc28edabf4e9808adcc40e2628ebb9407e",
-    "adaptations": "Self-contained direct workflow; no compulsory delegation, plugin command, report template, or CI rule. Includes repeated-operation and reader/writer coverage for cost defects, revisits exclusions after recurring findings, and limits audit claims to inspected paths. Extends lifecycle analysis across owners, phases, and distinct stop causes while distinguishing required bookkeeping and previously committed decisions from fresh admission.",
+    "adaptations": "Self-contained direct workflow; no compulsory delegation, plugin command, report template, or CI rule. Includes repeated-operation and reader/writer coverage for cost defects, revisits exclusions after recurring findings, and limits audit claims to inspected paths. Extends lifecycle analysis across owners, phases, and distinct stop causes while distinguishing required bookkeeping and previously committed decisions from fresh admission. Distinguishes externally owned existing resources from managed resources that still need updates, tracing successful initial setup into later reconciliation without adopting unrelated state.",
     "package_path": "skills/engineering/variant-analysis"
   },
   {
