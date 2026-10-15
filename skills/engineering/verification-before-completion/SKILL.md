@@ -31,10 +31,13 @@ For each substantive claim, identify its evidence and practical limits.
   remaining growth; a helper benchmark or cache's existence is insufficient.
   Investigate timed-out checks before increasing their budget, separating an
   algorithmic regression from instrumentation overhead or runner variation.
-- For evidence handoffs, save captured stdout, stderr and exit status directly.
-  Label summaries as summaries; never reconstruct output and call it a raw log.
-  If the original output is unavailable, report the missing evidence and obtain
-  a fresh capture when that evidence is required.
+- For evidence handoffs, preserve captured stdout, stderr and exit status when
+  needed. Before storing or sharing, remove secrets and private material the
+  destination or recipient is not authorized to receive. Label redactions as
+  sanitized and summaries as summaries; retain the observed exit status and
+  diagnostic meaning. Never reconstruct output and call it raw or describe
+  sanitized evidence as raw. If required evidence is unavailable, report the gap
+  and capture it again when needed.
 - Treat a subagent's result as scoped evidence. Verify the inspected entry
   points, methods, exclusions and uncertainty before making a broader claim;
   skill use and a clean audit report do not establish untested coverage.
