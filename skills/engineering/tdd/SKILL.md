@@ -38,6 +38,13 @@ Test doubles must implement the actual production interfaces and failure
 semantics. Prefer doubles at external boundaries; use internal fault injection
 only when needed to expose an otherwise inaccessible failure.
 
+When replacing a container or privilege transport in tests, do not evaluate a
+privileged production shell payload on the host. Faking selected commands does
+not isolate the rest of that payload; reject unexpected transport forms and
+test a typed unprivileged owning helper with private paths, or use permitted
+real isolation when the behavior requires it. Direct tests of unprivileged
+scripts and harmless commands remain appropriate.
+
 Do not recompute the implementation as the expected answer. Avoid tests that
 pass only because they duplicate the algorithm. Use documented examples, a
 separate reference model, or relationships the implementation could violate.
