@@ -16,7 +16,10 @@ For each substantive claim, identify its evidence and practical limits.
   For tool integrations, verify non-obvious options and settings at the owning
   operation of the pinned real tool, using a permitted fixture. A mock accepting
   those inputs, or a settings readback in another mode or directory, does not
-  prove enforcement. Report the gap if that operation cannot be exercised.
+  prove enforcement. When a loader can continue with defaults, inspect its
+  diagnostics and effective settings: a zero exit after fallback does not prove
+  the supplied configuration was applied. Report the gap if the owning operation
+  cannot be exercised.
 - For a defect regression, confirm the original symptom fails before the fix and
   passes after it where feasible. Use an isolated checkout or equivalent method
   that preserves user changes.
@@ -36,8 +39,10 @@ For each substantive claim, identify its evidence and practical limits.
   Investigate timed-out checks before increasing their budget, separating an
   algorithmic regression from instrumentation overhead or runner variation.
 - For evidence handoffs, preserve captured stdout, stderr and exit status when
-  needed. Before storing or sharing, remove secrets and private material the
-  destination or recipient is not authorized to receive. Label redactions as
+  needed. For delegated work, save required outputs where the recipient can read
+  them and supply the paths before handing work back; the delegate's tool responses
+  may be unavailable to the parent. Before storing or sharing, remove secrets and
+  private material the destination or recipient is not authorized to receive. Label redactions as
   sanitized and summaries as summaries; retain the observed exit status and
   diagnostic meaning. Never reconstruct output and call it raw or describe
   sanitized evidence as raw. If required evidence is unavailable, report the gap
