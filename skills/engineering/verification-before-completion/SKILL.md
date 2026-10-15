@@ -26,7 +26,9 @@ For each substantive claim, identify its evidence and practical limits.
   passes after it where feasible. Use an isolated checkout or equivalent method
   that preserves user changes.
 - For a claimed requirement, compare implementation and evidence against the
-  actual acceptance criteria. Report missing proof as missing.
+  actual acceptance criteria. When regression coverage claims an applied
+  configuration effect, exercise the consuming entry point; parsing a declaration
+  or inventory alone does not show it ran. Report missing proof as missing.
 - Before a review push, inspect the full diff, affected callers and applicable
   checks. After review, require coverage of the final head according to the
   repository's rules; prior approvals do not establish later correctness.
