@@ -29,7 +29,7 @@
     "source_url": "https://github.com/mattpocock/skills/tree/3cca18b368ae95cdbdebbff572ccafa662551015/skills/engineering/tdd",
     "license": "MIT",
     "upstream_skill_sha256": "cb01f66bebfaa25fa1f88e6b7e769cd9fd9f35b1120b8563749820738814c927",
-    "adaptations": "Infers authorized test boundaries; permits contract-relevant durable state and forbidden-call assertions; avoids forced approvals and unavailable skill dependencies. Adds ordered-history corruption cases and complete-operation growth checks for relevant workloads, preserving cache correctness and avoiding universal scale-test requirements. Covers lifecycle phases through durable completion and tests cancellation through the owning runtime or transport, preserving required accounting and committed decisions.",
+    "adaptations": "Infers authorized test boundaries; permits contract-relevant durable state and forbidden-call assertions; avoids forced approvals and unavailable skill dependencies. Adds ordered-history corruption cases and complete-operation growth checks for relevant workloads, preserving cache correctness and avoiding universal scale-test requirements. Covers lifecycle phases through durable completion and tests cancellation through the owning runtime or transport, preserving required accounting and committed decisions. For container or privilege transport doubles, prevents privileged production shell payloads from running on the host, distinguishes command fakes from isolation, and permits typed unprivileged helpers with private paths or permitted real isolation while retaining direct tests of unprivileged scripts and harmless commands.",
     "package_path": "skills/engineering/tdd"
   },
   {
