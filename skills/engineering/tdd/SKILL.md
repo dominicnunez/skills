@@ -45,6 +45,11 @@ test a typed unprivileged owning helper with private paths, or use permitted
 real isolation when the behavior requires it. Direct tests of unprivileged
 scripts and harmless commands remain appropriate.
 
+For machine-provisioning tests, an expected rejection on the current host is
+not isolation: the same test could provision a compatible host. Replace real
+writers with private fixtures or use permitted isolation before invoking the
+entry point, including when testing an OS or privilege guard.
+
 Do not recompute the implementation as the expected answer. Avoid tests that
 pass only because they duplicate the algorithm. Use documented examples, a
 separate reference model, or relationships the implementation could violate.
