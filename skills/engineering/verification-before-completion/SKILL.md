@@ -8,6 +8,12 @@ For each substantive claim, identify its evidence and practical limits.
 
 - Confirm the checked revision or working-tree content, command, exit status, and
   relevant output. A started or still-running check has not passed.
+- When a checker selects a Git index, named revision or generated input, identify
+  the snapshot it actually consumes and record its identity. Nearby working-file
+  hashes do not prove that snapshot was checked. If the checked snapshot differs
+  from the intended submission, limit the claim to the checked input and validate
+  the intended snapshot before calling it ready. A successful index check does
+  not validate unstaged edits.
 - Reuse successful checks when the relevant code and environment are unchanged.
   Repeat or broaden them only after changes, failures, or unresolved concerns
   invalidate the evidence. Do not rerun checks merely to accompany a message.
