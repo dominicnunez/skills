@@ -17,13 +17,18 @@ For each substantive claim, identify its evidence and practical limits.
 - Reuse successful checks when the relevant code and environment are unchanged.
   Repeat or broaden them only after changes, failures, or unresolved concerns
   invalidate the evidence. Do not rerun checks merely to accompany a message.
-- For cached compiled-test evidence, connect the intended source and feature set
-  to the executable actually run. With Cargo across worktrees, prefer a separate
-  target directory per checkout; a successful build or `fresh` artifact report
-  alone does not prove the intended tests are present. Check the actual
-  executable's test list for new cases before running it. Reject missing cases
-  or runs that filter them all out; rebuild in a separate target directory when
-  shared artifacts cannot be trusted. Record executable identity when reusing
+- For cached compiled-test evidence, bind the executable and relevant workspace
+  dependencies to the intended checkout, source and features. With Cargo across
+  worktrees, prefer a separate target directory per checkout. A successful build,
+  manifest path, `fresh` report or unchanged test list does not prove which
+  dependency build a consumer linked. When reusing a shared Cargo target directory
+  across checkouts, clean build artifacts for affected workspace packages and
+  their consumers before rebuilding; clean workspace artifacts when the affected
+  set is unknown. Wait for processes using the affected source, helpers or cache
+  to finish before changing those inputs.
+  Require rebuild evidence for changed workspace dependencies, and check new cases
+  in the actual executable's test list. Reject unbound dependency builds, missing
+  cases and runs that filter them all out. Record executable identity when reusing
   compiled-test results.
 - A focused test supports the behavior it exercises. A linter does not prove a
   build, and a passing package does not prove all requirements or failure paths.
