@@ -17,6 +17,12 @@ description: Use after a confirmed defect to find other occurrences of the same 
    causes and their scopes; a guard for an authority change may not observe
    runtime shutdown. Include admission after a handler returns and the outer
    runtime/transport ordering that invokes the helper under review.
+   For cached action identities, separate original retries from fresh admission.
+   Do not exclude an accepted action merely because it has a receipt: establish
+   whether that receipt survives owner retirement, pruning and restart until its
+   callers reconcile the outcome. Compare the identity and revision required by
+   the current admission validator with what a later explicit click sends,
+   including after leaving and returning to the original selection.
    When setup or repair skips existing state, distinguish externally owned
    resources from managed resources that still need updates. Trace a successful
    first run into later reconciliation and check that maintenance remains
