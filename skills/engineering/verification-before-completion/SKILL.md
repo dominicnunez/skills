@@ -30,6 +30,13 @@ For each substantive claim, identify its evidence and practical limits.
   in the actual executable's test list. Reject unbound dependency builds, missing
   cases and runs that filter them all out. Record executable identity when reusing
   compiled-test results.
+- When claiming that Python ran particular source bytes, verify the importing
+  entry point as well as file hashes. `-B` and `sys.dont_write_bytecode` prevent
+  bytecode writes, not reads; ordinary imports can select cached bytecode or a
+  different package. Execute checked source bytes explicitly, or establish which
+  artifact the actual loader selected and bind it to the intended source. Cover
+  imported local helpers and the test driver when they support the claim; a
+  source-only worker does not establish source-only test evidence.
 - A focused test supports the behavior it exercises. A linter does not prove a
   build, and a passing package does not prove all requirements or failure paths.
   For tool integrations, verify non-obvious options and settings at the owning
