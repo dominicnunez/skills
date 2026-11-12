@@ -14,6 +14,12 @@ For each substantive claim, identify its evidence and practical limits.
   from the intended submission, limit the claim to the checked input and validate
   the intended snapshot before calling it ready. A successful index check does
   not validate unstaged edits.
+- For builds that consume generated or staged inputs, bind those inputs to the
+  checkout and build operation: source/config hashes and an external helper do
+  not establish that compile-time assets were generated or embedded. If a missing
+  input can silently select a fallback or disable behavior, establish the
+  required input explicitly and run a cheap check through its owning consumer in
+  the required execution environment before an expensive suite.
 - Reuse successful checks when the relevant code and environment are unchanged.
   Repeat or broaden them only after changes, failures, or unresolved concerns
   invalidate the evidence. Do not rerun checks merely to accompany a message.
