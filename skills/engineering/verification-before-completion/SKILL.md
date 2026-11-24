@@ -32,6 +32,15 @@ For each substantive claim, identify its evidence and practical limits.
   their consumers before rebuilding; clean workspace artifacts when the affected
   set is unknown. Wait for processes using the affected source, helpers or cache
   to finish before changing those inputs.
+  If other packages' outputs must survive shared-target cleanup, establish exact
+  artifact ownership from compiler output and package fingerprints before deleting;
+  target names or filename suffixes alone are insufficient. Check for same-name
+  integration targets across packages. Neither `cargo clean -p` nor its printed
+  dry run proves that removals are confined to the selected packages. Use an exact
+  owned-path allowlist or another proven cleanup boundary; if ownership cannot be
+  established, rebuild in an isolated target directory. Capture protected artifact
+  ownership and identity before cleanup and verify preservation afterward. This
+  does not replace the required invalidation and dependency rebuild evidence.
   Require rebuild evidence for changed workspace dependencies, and check new cases
   in the actual executable's test list. Reject unbound dependency builds, missing
   cases and runs that filter them all out. Record executable identity when reusing
