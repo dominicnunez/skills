@@ -8,6 +8,10 @@ For each substantive claim, identify its evidence and practical limits.
 
 - Confirm the checked revision or working-tree content, command, exit status, and
   relevant output. A started or still-running check has not passed.
+- Before reporting no failures from a running check, inspect its complete
+  accumulated owning output for failures; a recent tail or count of passing
+  cases can miss earlier failures. Label live observations as partial, and use
+  the terminal result and exit status for completion claims.
 - When a checker selects a Git index, named revision or generated input, identify
   the snapshot it actually consumes and record its identity. Nearby working-file
   hashes do not prove that snapshot was checked. If the checked snapshot differs
